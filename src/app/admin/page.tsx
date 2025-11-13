@@ -3,6 +3,9 @@ import { listTenantsWithDomains } from "@/lib/tenants";
 
 import { CreateTenantForm } from "./_components/create-tenant-form";
 
+// Force dynamic rendering - admin page needs database access
+export const dynamic = "force-dynamic";
+
 function formatDate(iso: string) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
