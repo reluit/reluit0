@@ -20,6 +20,8 @@
   },
   "homepage": "https://github.com/reluit/reluit0#readme",
   "dependencies": {
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.81.1",
     "@tailwindcss/postcss": "^4.1.17",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.3",
