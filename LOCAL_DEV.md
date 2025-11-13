@@ -23,13 +23,16 @@
 
 ## Accessing Pages Locally
 
-The middleware bypasses subdomain routing for `localhost`, so you can access pages directly via their routes:
+### Quick Access Routes
 
-### Option 1: Direct Route Access (Easiest)
+**Local Dev Dashboard (Easiest for UI work):**
+- URL: `http://localhost:3000/dashboard`
+- Loads the first tenant automatically
+- Perfect for rapid UI prototyping!
 
 **Admin Dashboard:**
 - URL: `http://localhost:3000/admin`
-- This bypasses the subdomain requirement
+- Create and manage tenants
 
 **Tenant Dashboard (by slug):**
 - URL: `http://localhost:3000/tenant/[slug]`
