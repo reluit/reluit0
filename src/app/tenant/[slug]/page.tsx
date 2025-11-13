@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { getCurrentUser, getUserTenantAccess, isTenantClaimed } from "@/lib/auth";
+import { getTenantDashboardData } from "@/lib/analytics";
 import { getTenantBySlug } from "@/lib/tenants";
 
 import { ClaimPage } from "../_components/claim-page";
@@ -19,6 +20,8 @@ export default async function TenantPage({ params }: TenantPageProps) {
     notFound();
   }
 
+  const dashboardData = await getTenantDashboardData(tenant.id);
+
   const claimed = await isTenantClaimed(tenant.id);
   const user = await getCurrentUser();
   const hasAccess = user ? await getUserTenantAccess(tenant.id) : null;
@@ -34,6 +37,6 @@ export default async function TenantPage({ params }: TenantPageProps) {
   }
 
   // User is authenticated and has access, show dashboard
-  return <TenantDashboard tenant={tenant} />;
+  return <TenantDashboard tenant={tenant} data={dashboardData} />;
 }
 
