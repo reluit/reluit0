@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 
-import { signInAction, signUpAction, type SignInActionState, type SignUpActionState } from "../_actions";
+import { signInAction, signUpAction, forgotPasswordAction, type SignInActionState, type SignUpActionState, type ForgotPasswordActionState } from "../_actions";
 import type { TenantWithDomains } from "@/lib/tenants";
 
 const signUpInitialState: SignUpActionState = { status: "idle" };
 const signInInitialState: SignInActionState = { status: "idle" };
+const forgotPasswordInitialState: ForgotPasswordActionState = { status: "idle" };
 
 function SubmitButton({ text, pendingText }: { text: string; pendingText: string }) {
   const { pending } = useFormStatus();
@@ -28,8 +29,11 @@ export function ClaimPage({ tenant, isClaimed }: { tenant: TenantWithDomains; is
   const router = useRouter();
   const signUpFormRef = useRef<HTMLFormElement>(null);
   const signInFormRef = useRef<HTMLFormElement>(null);
+  const forgotPasswordFormRef = useRef<HTMLFormElement>(null);
   const [signUpState, signUpActionFn] = useFormState(signUpAction, signUpInitialState);
   const [signInState, signInActionFn] = useFormState(signInAction, signInInitialState);
+  const [forgotPasswordState, forgotPasswordActionFn] = useFormState(forgotPasswordAction, forgotPasswordInitialState);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   useEffect(() => {
     if (signUpState.status === "success" || signInState.status === "success") {
@@ -40,6 +44,48 @@ export function ClaimPage({ tenant, isClaimed }: { tenant: TenantWithDomains; is
   const primaryDomain = tenant.domains.find((d) => d.is_primary) ?? tenant.domains[0];
 
   if (isClaimed) {
+    if (showForgotPassword) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-white px-4">
+          <div className="w-full max-w-md space-y-6">
+            <div className="text-center">
+              <h1 className="text-2xl font-semibold text-gray-900">Reset password</h1>
+              <p className="mt-2 text-sm text-gray-600">
+                We&apos;ll send a password reset link to your email
+              </p>
+            </div>
+
+            <form ref={forgotPasswordFormRef} action={forgotPasswordActionFn} className="space-y-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+              <input type="hidden" name="tenantId" value={tenant.id} />
+
+              {forgotPasswordState.status === "error" && (
+                <div className="rounded-md border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-sm text-rose-600">
+                  {forgotPasswordState.message}
+                </div>
+              )}
+
+              {forgotPasswordState.status === "success" && (
+                <div className="rounded-md border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
+                  {forgotPasswordState.message}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowForgotPassword(false)}
+                  className="flex-1 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                >
+                  Back to login
+                </button>
+                <SubmitButton text="Send reset link" pendingText="Sending..." />
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex min-h-screen items-center justify-center bg-white px-4">
         <div className="w-full max-w-md space-y-6">
@@ -51,25 +97,13 @@ export function ClaimPage({ tenant, isClaimed }: { tenant: TenantWithDomains; is
           </div>
 
           <form ref={signInFormRef} action={signInActionFn} className="space-y-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+            <input type="hidden" name="tenantId" value={tenant.id} />
+
             {signInState.status === "error" && (
-              <div className="rounded-md border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              <div className="rounded-md border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-sm text-rose-600">
                 {signInState.message}
               </div>
             )}
-
-            <div className="space-y-2">
-              <label htmlFor="signin-email" className="block text-sm font-medium text-gray-700">
-                Email
-              </label>
-              <input
-                id="signin-email"
-                name="email"
-                type="email"
-                required
-                placeholder="you@example.com"
-                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-400 focus:outline-none"
-              />
-            </div>
 
             <div className="space-y-2">
               <label htmlFor="signin-password" className="block text-sm font-medium text-gray-700">
@@ -80,9 +114,20 @@ export function ClaimPage({ tenant, isClaimed }: { tenant: TenantWithDomains; is
                 name="password"
                 type="password"
                 required
-                placeholder="••••••••"
+                placeholder="Enter your password"
                 className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-400 focus:outline-none"
+                autoFocus
               />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowForgotPassword(true)}
+                className="text-sm text-emerald-600 hover:text-emerald-700"
+              >
+                Forgot password?
+              </button>
             </div>
 
             <SubmitButton text="Sign in" pendingText="Signing in..." />
