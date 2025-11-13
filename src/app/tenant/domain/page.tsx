@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { getCurrentUser, getUserTenantAccess, isTenantClaimed } from "@/lib/auth";
@@ -11,15 +12,24 @@ export const dynamic = "force-dynamic";
 export const dynamicParams = true;
 
 interface DomainTenantPageProps {
-  searchParams: {
+  searchParams: Promise<{
     domain?: string;
-  };
+  }>;
 }
 
 export default async function DomainTenantPage({ searchParams }: DomainTenantPageProps) {
-  const domain = typeof searchParams.domain === "string" ? searchParams.domain : undefined;
+  // Get domain from searchParams (set by middleware rewrite)
+  const params = await searchParams;
+  let domain = typeof params.domain === "string" ? params.domain : undefined;
+  
+  // Fallback: get from headers (set by middleware as backup)
+  if (!domain) {
+    const headersList = await headers();
+    domain = headersList.get("x-tenant-domain") ?? undefined;
+  }
 
   if (!domain) {
+    console.error("DomainTenantPage: No domain found in searchParams or headers");
     notFound();
   }
 

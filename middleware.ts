@@ -63,13 +63,18 @@ export function middleware(request: NextRequest) {
     const url = nextUrl.clone();
     url.pathname = buildTenantPath("domain", pathname);
     url.searchParams.set("domain", hostname);
-    return NextResponse.rewrite(url);
+    const response = NextResponse.rewrite(url);
+    // Also set header as backup for domain lookup
+    response.headers.set("x-tenant-domain", hostname);
+    return response;
   }
 
   const url = nextUrl.clone();
   url.pathname = buildTenantPath("domain", pathname);
   url.searchParams.set("domain", hostname);
-  return NextResponse.rewrite(url);
+  const response = NextResponse.rewrite(url);
+  response.headers.set("x-tenant-domain", hostname);
+  return response;
 }
 
 export const config = {
