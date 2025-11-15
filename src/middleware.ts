@@ -34,9 +34,9 @@ export function middleware(request: NextRequest) {
       
       const urlWithSlug = url.clone();
       
-      // If root path or just /slug, redirect to /slug/dashboard
+      // If root path or just /slug, rewrite to /tenant/[slug]/dashboard (will redirect via page.tsx)
       if (restPath === '' || restPath === '/') {
-        urlWithSlug.pathname = `/tenant/${slug}/dashboard`;
+        urlWithSlug.pathname = `/tenant/${slug}`;
       } else {
         // Rewrite /[slug]/... to /tenant/[slug]/...
         urlWithSlug.pathname = `/tenant/${slug}${restPath}`;
