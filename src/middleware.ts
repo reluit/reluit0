@@ -70,9 +70,9 @@ export function middleware(request: NextRequest) {
     // Create URL with subdomain parameter
     const urlWithSlug = url.clone();
     
-    // If root path, redirect to dashboard
+    // If root path, rewrite to /tenant/[subdomain] (will redirect to /dashboard via page.tsx)
     if (url.pathname === '/') {
-      urlWithSlug.pathname = `/tenant/${subdomain}/dashboard`;
+      urlWithSlug.pathname = `/tenant/${subdomain}`;
     } else {
       // Rewrite /... to /tenant/[subdomain]/...
       urlWithSlug.pathname = `/tenant/${subdomain}${url.pathname}`;
