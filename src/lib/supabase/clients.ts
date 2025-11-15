@@ -11,10 +11,6 @@ export async function createSupabaseServerClient(): Promise<GenericClient> {
   const SUPABASE_ANON_KEY = getRequiredServerEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
   
   const cookieStore = await cookies();
-  const mutableCookies = cookieStore as unknown as {
-    set?: (options: { name: string; value: string } & Record<string, unknown>) => void;
-    delete?: (options: { name: string } & Record<string, unknown>) => void;
-  };
 
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
@@ -22,13 +18,24 @@ export async function createSupabaseServerClient(): Promise<GenericClient> {
         return cookieStore.get(name)?.value;
       },
       set(name: string, value: string, options: any) {
-        if (typeof mutableCookies.set === "function") {
-          mutableCookies.set({ name, value, ...options });
+        try {
+          // In Next.js 15, cookies can only be modified in Server Actions or Route Handlers
+          // Wrap in try-catch to handle cases where we're in a Server Component
+          cookieStore.set(name, value, options);
+        } catch (error) {
+          // Silently fail if we can't set cookies (e.g., in Server Components)
+          // Token refresh will need to happen in a Server Action or Route Handler
+          console.warn(`Cannot set cookie ${name}: cookies can only be modified in Server Actions or Route Handlers`);
         }
       },
       remove(name: string, options: any) {
-        if (typeof mutableCookies.delete === "function") {
-          mutableCookies.delete({ name, ...options });
+        try {
+          // In Next.js 15, cookies can only be modified in Server Actions or Route Handlers
+          // Note: Next.js 15's delete() only accepts the name, not options
+          cookieStore.delete(name);
+        } catch (error) {
+          // Silently fail if we can't delete cookies (e.g., in Server Components)
+          console.warn(`Cannot delete cookie ${name}: cookies can only be modified in Server Actions or Route Handlers`);
         }
       },
     },
