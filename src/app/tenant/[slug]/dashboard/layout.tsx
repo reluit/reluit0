@@ -85,11 +85,11 @@ export default function DashboardLayout({
   }, []);
 
   const dockItems: DockItem[] = [
-    { id: "home", label: "Home", icon: <Home strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/dashboard` },
-    { id: "evaluate", label: "Evaluate", icon: <Zap strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/dashboard/evaluate` },
-    { id: "agent", label: "Agent", icon: <Cpu strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/dashboard/agent` },
-    { id: "integrations", label: "Integrations", icon: <Plug strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/dashboard/integrations` },
-    { id: "settings", label: "Settings", icon: <Settings strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/dashboard/settings` },
+    { id: "home", label: "Home", icon: <Home strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/` },
+    { id: "evaluate", label: "Evaluate", icon: <Zap strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/evaluate` },
+    { id: "agent", label: "Agent", icon: <Cpu strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/agent` },
+    { id: "integrations", label: "Integrations", icon: <Plug strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/integrations` },
+    { id: "settings", label: "Settings", icon: <Settings strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/settings` },
   ];
 
   return (
