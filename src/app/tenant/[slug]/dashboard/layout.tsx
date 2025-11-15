@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Home, Zap, Cpu, Plug, Settings, Search } from "lucide-react";
+import { Home, Zap, Cpu, Plug, Settings, Search, CreditCard } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { ConversationDrawer } from "@/components/conversation-drawer";
 import { IntegrationDrawer } from "@/components/integrations/integration-drawer";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useParams } from "next/navigation";
 import { motion } from "framer-motion";
 
 interface DockItem {
@@ -23,10 +23,11 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  // Extract slug from path: /[slug]/dashboard/...
-  const slugMatch = pathname.match(/^\/([^/]+)/);
-  const slug = slugMatch ? slugMatch[1] : '';
-  const currentPage = pathname === `/${slug}/dashboard` ? "home" : pathname.split("/dashboard/")[1] || "home";
+  const params = useParams();
+  // Get slug from route params (more reliable)
+  const slug = (params?.slug as string) || '';
+  // Get current page from pathname - /dashboard is home, /dashboard/page is the page name
+  const currentPage = pathname === '/dashboard' || pathname.endsWith('/dashboard') ? "home" : pathname.split("/dashboard/")[1]?.split('/')[0] || "home";
   const [selectedItem, setSelectedItem] = useState<string>(currentPage);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -85,11 +86,12 @@ export default function DashboardLayout({
   }, []);
 
   const dockItems: DockItem[] = [
-    { id: "home", label: "Home", icon: <Home strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/` },
-    { id: "evaluate", label: "Evaluate", icon: <Zap strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/evaluate` },
-    { id: "agent", label: "Agent", icon: <Cpu strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/agent` },
-    { id: "integrations", label: "Integrations", icon: <Plug strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/integrations` },
-    { id: "settings", label: "Settings", icon: <Settings strokeWidth={1.5} className="w-5 h-5" />, href: `/${slug}/settings` },
+    { id: "home", label: "Home", icon: <Home strokeWidth={1.5} className="w-5 h-5" />, href: '/dashboard' },
+    { id: "evaluate", label: "Evaluate", icon: <Zap strokeWidth={1.5} className="w-5 h-5" />, href: '/dashboard/evaluate' },
+    { id: "agent", label: "Agent", icon: <Cpu strokeWidth={1.5} className="w-5 h-5" />, href: '/dashboard/agent' },
+    { id: "integrations", label: "Integrations", icon: <Plug strokeWidth={1.5} className="w-5 h-5" />, href: '/dashboard/integrations' },
+    { id: "billing", label: "Billing", icon: <CreditCard strokeWidth={1.5} className="w-5 h-5" />, href: '/dashboard/billing' },
+    { id: "settings", label: "Settings", icon: <Settings strokeWidth={1.5} className="w-5 h-5" />, href: '/dashboard/settings' },
   ];
 
   return (

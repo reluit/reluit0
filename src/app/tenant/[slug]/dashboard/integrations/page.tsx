@@ -88,7 +88,7 @@ function IntegrationsContent() {
         message: `Successfully connected to ${integration?.name || connected}!`,
       });
       // Clear the URL
-      window.history.replaceState({}, "", `/${slug}/dashboard/integrations`);
+      window.history.replaceState({}, "", `/dashboard/integrations`);
     } else if (error) {
       const integration = availableIntegrations.find(i => i.id === error);
       setNotification({
@@ -96,7 +96,7 @@ function IntegrationsContent() {
         message: `Failed to connect to ${integration?.name || error}. Please try again.`,
       });
       // Clear the URL
-      window.history.replaceState({}, "", `/${slug}/dashboard/integrations`);
+      window.history.replaceState({}, "", `/dashboard/integrations`);
     }
   }, [searchParams, slug]);
 

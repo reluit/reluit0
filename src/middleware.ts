@@ -21,20 +21,49 @@ export function middleware(request: NextRequest) {
   
   if (isLocalhost || isVercelPreview) {
     // For localhost/vercel, handle slug-based routing from pathname
-    // e.g., /slug/dashboard -> /tenant/slug/dashboard
+    // Check if path starts with /dashboard first (no slug prefix)
+    if (url.pathname.startsWith('/dashboard')) {
+      // Try to get slug from cookie first
+      const tenantSlug = request.cookies.get('tenant-slug')?.value;
+      
+      if (tenantSlug) {
+        const restPath = url.pathname.substring('/dashboard'.length);
+        const urlWithSlug = url.clone();
+        urlWithSlug.pathname = `/tenant/${tenantSlug}/dashboard${restPath}`;
+        return NextResponse.rewrite(urlWithSlug);
+      }
+      
+      // If no cookie, try to extract from path (e.g., /slug/dashboard)
+      const pathMatch = url.pathname.match(/^\/([^/]+)\/dashboard(\/.*)?$/);
+      if (pathMatch) {
+        const slug = pathMatch[1];
+        const restPath = pathMatch[2] || '';
+        const urlWithSlug = url.clone();
+        urlWithSlug.pathname = `/tenant/${slug}/dashboard${restPath}`;
+        // Set cookie for future requests
+        const response = NextResponse.rewrite(urlWithSlug);
+        response.cookies.set('tenant-slug', slug, { path: '/', maxAge: 60 * 60 * 24 * 7 }); // 7 days
+        return response;
+      }
+      
+      // If no slug found, let it fall through (might need to handle this case)
+      return NextResponse.next();
+    }
+    
+    // Handle /[slug] routes
     const pathMatch = url.pathname.match(/^\/([^/]+)(\/.*)?$/);
     if (pathMatch) {
       const slug = pathMatch[1];
       const restPath = pathMatch[2] || '';
       
       // Skip if it's a reserved path (admin, api, auth, etc.)
-      if (slug === 'admin' || slug === 'api' || slug === 'auth' || slug === 'integrations' || slug === 'tenant') {
+      if (slug === 'admin' || slug === 'api' || slug === 'auth' || slug === 'integrations' || slug === 'tenant' || slug === 'dashboard') {
         return NextResponse.next();
       }
       
       const urlWithSlug = url.clone();
       
-      // If root path or just /slug, rewrite to /tenant/[slug]/dashboard (will redirect via page.tsx)
+      // If root path or just /slug, rewrite to /tenant/[slug] (will redirect to /dashboard via page.tsx)
       if (restPath === '' || restPath === '/') {
         urlWithSlug.pathname = `/tenant/${slug}`;
       } else {
@@ -42,7 +71,10 @@ export function middleware(request: NextRequest) {
         urlWithSlug.pathname = `/tenant/${slug}${restPath}`;
       }
       
-      return NextResponse.rewrite(urlWithSlug);
+      // Set cookie for future /dashboard requests
+      const response = NextResponse.rewrite(urlWithSlug);
+      response.cookies.set('tenant-slug', slug, { path: '/', maxAge: 60 * 60 * 24 * 7 }); // 7 days
+      return response;
     }
     return NextResponse.next();
   }
@@ -73,6 +105,10 @@ export function middleware(request: NextRequest) {
     // If root path, rewrite to /tenant/[subdomain] (will redirect to /dashboard via page.tsx)
     if (url.pathname === '/') {
       urlWithSlug.pathname = `/tenant/${subdomain}`;
+    } else if (url.pathname.startsWith('/dashboard')) {
+      // Rewrite /dashboard and /dashboard/... to /tenant/[subdomain]/dashboard/...
+      const restPath = url.pathname.substring('/dashboard'.length);
+      urlWithSlug.pathname = `/tenant/${subdomain}/dashboard${restPath}`;
     } else {
       // Rewrite /... to /tenant/[subdomain]/...
       urlWithSlug.pathname = `/tenant/${subdomain}${url.pathname}`;

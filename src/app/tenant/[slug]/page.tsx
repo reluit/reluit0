@@ -25,8 +25,8 @@ export default async function TenantPage({
       redirect('/dashboard');
     }
   } else {
-    // Slug-based routing: redirect to /[slug]/dashboard
-    redirect(`/${slug}/dashboard`);
+    // Slug-based routing: redirect to /dashboard (no slug prefix)
+    redirect('/dashboard');
   }
 }
 
