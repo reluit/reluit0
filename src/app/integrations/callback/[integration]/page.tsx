@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 
-export default function IntegrationCallbackPage() {
+function IntegrationCallbackContent() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const integration = params.integration as string;
   const [status, setStatus] = useState<"processing" | "success" | "error">("processing");
   const [message, setMessage] = useState("Processing authentication...");
@@ -13,20 +14,34 @@ export default function IntegrationCallbackPage() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        // In a production app, this would:
-        // 1. Exchange the authorization code for an access token
-        // 2. Store the connection in the database
-        // 3. Redirect to the integrations page with success
+        // Get connection ID and slug from URL params
+        // Composio may not always provide connectionId in URL, API will find it from database
+        const connectionId = searchParams.get('connectionId') || searchParams.get('connection_id') || searchParams.get('id');
+        const slug = searchParams.get('slug') || searchParams.get('state');
 
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Build query params - connectionId is optional, API will find it if missing
+        const params = new URLSearchParams();
+        if (connectionId) params.set('connectionId', connectionId);
+        if (slug) params.set('slug', slug);
+        params.set('integrationId', integration);
+
+        // Call API to complete the connection
+        const response = await fetch(
+          `/api/integrations/callback?${params.toString()}`
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to complete connection');
+        }
 
         setStatus("success");
         setMessage(`Successfully connected to ${integration}!`);
 
         // Redirect to integrations page after 2 seconds
         setTimeout(() => {
-          router.push("/dashboard/integrations?connected=" + integration);
+          router.push(`/dashboard/integrations?connected=${integration}`);
         }, 2000);
       } catch (error: any) {
         console.error("Callback error:", error);
@@ -35,13 +50,13 @@ export default function IntegrationCallbackPage() {
 
         // Redirect to integrations page after 3 seconds
         setTimeout(() => {
-          router.push("/dashboard/integrations?error=" + integration);
+          router.push(`/dashboard/integrations?error=${integration}`);
         }, 3000);
       }
     };
 
     handleCallback();
-  }, [integration, router]);
+  }, [integration, router, searchParams]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -104,5 +119,17 @@ export default function IntegrationCallbackPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function IntegrationCallbackPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900" />
+      </div>
+    }>
+      <IntegrationCallbackContent />
+    </Suspense>
   );
 }

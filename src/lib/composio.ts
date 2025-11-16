@@ -116,3 +116,51 @@ export async function getConnectedAccount(connectionId: string) {
   const composio = getComposioClient();
   return await composio.connectedAccounts.get(connectionId);
 }
+
+/**
+ * Get tools from a specific toolkit
+ */
+export async function getToolsForToolkit(toolkitName: string) {
+  const composio = getComposioClient();
+  try {
+    const tools = await (composio as any).tools.getRawComposioTools({
+      filterBy: {
+        toolkits: [toolkitName.toUpperCase()]
+      }
+    });
+    return tools;
+  } catch (error: any) {
+    console.error('Failed to fetch tools for toolkit:', toolkitName, error);
+    throw error;
+  }
+}
+
+/**
+ * Get all available tools (across all toolkits)
+ */
+export async function getAllTools() {
+  const composio = getComposioClient();
+  try {
+    const tools = await (composio as any).tools.getRawComposioTools();
+    return tools;
+  } catch (error: any) {
+    console.error('Failed to fetch all tools:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get tools for a connected account
+ */
+export async function getToolsForConnection(connectionId: string) {
+  const composio = getComposioClient();
+  try {
+    const connectedAccount = await composio.connectedAccounts.get(connectionId);
+    // Get tools associated with this connection
+    const tools = await (composio as any).tools.get(connectionId);
+    return tools;
+  } catch (error: any) {
+    console.error('Failed to fetch tools for connected account:', error);
+    throw error;
+  }
+}

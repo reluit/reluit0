@@ -21,15 +21,24 @@ function SubmitButton() {
   );
 }
 
-export function CreateTenantForm({ rootDomain }: { rootDomain: string }) {
+export function CreateTenantForm({
+  rootDomain,
+  onTenantCreated,
+}: {
+  rootDomain: string;
+  onTenantCreated?: () => void;
+}) {
   const formRef = useRef<HTMLFormElement>(null);
   const [state, formAction] = useFormState(createTenantAction, initialState);
 
   useEffect(() => {
     if (state.status === "success" && formRef.current) {
       formRef.current.reset();
+      if (onTenantCreated) {
+        onTenantCreated();
+      }
     }
-  }, [state.status]);
+  }, [state.status, onTenantCreated]);
 
   return (
     <form ref={formRef} action={formAction} className="space-y-5 rounded-xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm">

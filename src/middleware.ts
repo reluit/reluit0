@@ -23,14 +23,22 @@ export function middleware(request: NextRequest) {
     // For localhost/vercel, handle slug-based routing from pathname
     // Check if path starts with /dashboard first (no slug prefix)
     if (url.pathname.startsWith('/dashboard')) {
-      // Try to get slug from cookie first
-      const tenantSlug = request.cookies.get('tenant-slug')?.value;
+      // Try to get slug from query parameter first (for Stripe redirects)
+      const slugFromQuery = url.searchParams.get('slug');
+      
+      // Try to get slug from cookie
+      const tenantSlug = slugFromQuery || request.cookies.get('tenant-slug')?.value;
       
       if (tenantSlug) {
         const restPath = url.pathname.substring('/dashboard'.length);
         const urlWithSlug = url.clone();
         urlWithSlug.pathname = `/tenant/${tenantSlug}/dashboard${restPath}`;
-        return NextResponse.rewrite(urlWithSlug);
+        // Set cookie for future requests if we got slug from query
+        const response = NextResponse.rewrite(urlWithSlug);
+        if (slugFromQuery) {
+          response.cookies.set('tenant-slug', tenantSlug, { path: '/', maxAge: 60 * 60 * 24 * 7 }); // 7 days
+        }
+        return response;
       }
       
       // If no cookie, try to extract from path (e.g., /slug/dashboard)
@@ -89,11 +97,17 @@ export function middleware(request: NextRequest) {
   if (parts.length >= 3) {
     const subdomain = parts[0];
 
-    // Skip common subdomains
+    // Handle admin subdomain - rewrite to /admin
+    if (subdomain === 'admin') {
+      const urlWithAdmin = url.clone();
+      urlWithAdmin.pathname = '/admin';
+      return NextResponse.rewrite(urlWithAdmin);
+    }
+
+    // Skip other common subdomains
     if (
       subdomain === 'www' ||
       subdomain === 'app' ||
-      subdomain === 'admin' ||
       subdomain === 'dashboard'
     ) {
       return NextResponse.next();

@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import Link from "next/link";
-import { Bell, X } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Bell, X, Edit } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { TypeformModal } from "@/components/ui/typeform-modal";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { DatePicker } from "@/components/analytics/date-picker";
@@ -55,12 +57,15 @@ const allChartWidgets = [
 // Initial widgets to show (excluding ones shown in main section: call-volume, call-duration, monthly-summary)
 const initialWidgetIds = ["call-outcomes", "sentiment", "booking-activity", "quality-score"];
 
-export default function HomePage() {
+function HomePageContent() {
+  const searchParams = useSearchParams();
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
   const slug = getSlug(pathname);
 
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [isTypeformOpen, setIsTypeformOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [dateRange, setDateRange] = useState<"thisWeek" | "thisMonth" | "lastMonth" | "last3Months">("thisMonth");
   const [activeStatTab, setActiveStatTab] = useState<string>("monthly-summary");
   const [widgets, setWidgets] = useState(() =>
@@ -145,14 +150,45 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="page-transition-wrapper">
-      <div
-        ref={contentRef}
-        className="page-content"
-        style={{ 
-          paddingLeft: '0px',
-          paddingTop: '0px',
-        }}
+    <>
+      {/* Payment Success Notification */}
+      <AnimatePresence>
+        {paymentSuccess && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-4 right-4 z-50 bg-emerald-50 border border-emerald-200 rounded-lg p-4 shadow-lg max-w-md"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-emerald-900">Payment Successful!</p>
+                <p className="text-xs text-emerald-700 mt-0.5">Your payment has been processed successfully.</p>
+              </div>
+              <button
+                onClick={() => setPaymentSuccess(false)}
+                className="text-emerald-400 hover:text-emerald-600 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      <div className="page-transition-wrapper">
+        <div
+          ref={contentRef}
+          className="page-content"
+          style={{ 
+            paddingLeft: '0px',
+            paddingTop: '0px',
+          }}
       >
         <div className="relative" style={{ paddingLeft: '72px', paddingRight: '48px' }}>
           <p className="mb-0.5 text-[0.9375rem] font-medium text-gray-400" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
@@ -185,6 +221,20 @@ export default function HomePage() {
               }}
             >
               <Bell strokeWidth={1.5} className="h-5 w-5" />
+            </button>
+
+            {/* Request Edit Button - Positioned next to notification bell */}
+            <button
+              onClick={() => setIsTypeformOpen(true)}
+              className="absolute flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-full transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 z-10"
+              style={{
+                right: `calc(100% - ${analyticsOffset || 72}px - ${analyticsWidth || 0}px + 72px + 56px)`,
+                top: '50%',
+                transform: 'translateY(-50%)',
+              }}
+            >
+              <Edit className="h-4 w-4" strokeWidth={1.5} />
+              Request Edit
             </button>
           </div>
         </div>
@@ -331,7 +381,6 @@ export default function HomePage() {
             })}
           </div>
         </div>
-      </div>
 
       {/* Edit Widgets Modal */}
       <AnimatePresence>
@@ -478,7 +527,28 @@ export default function HomePage() {
           </>
         )}
       </AnimatePresence>
+
+      {/* Typeform Modal */}
+      <TypeformModal isOpen={isTypeformOpen} onClose={() => setIsTypeformOpen(false)} />
+      </div>
     </div>
+    </>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <div className="page-content" style={{ paddingLeft: '0px', paddingTop: '0px' }}>
+        <div className="relative" style={{ paddingLeft: '72px', paddingRight: '48px' }}>
+          <div className="flex items-center justify-center py-16">
+            <p className="text-sm text-gray-500">Loading...</p>
+          </div>
+        </div>
+      </div>
+    }>
+      <HomePageContent />
+    </Suspense>
   );
 }
 

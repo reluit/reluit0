@@ -3,25 +3,19 @@
 import { useEffect, useState, Suspense } from "react";
 import { Search, Globe } from "lucide-react";
 import { motion } from "framer-motion";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useParams } from "next/navigation";
 import { IntegrationLogo } from "@/components/integration-logo";
 
 export const dynamic = "force-dynamic";
-
-// Get slug from pathname
-function getSlug(pathname: string): string {
-  const match = pathname.match(/^\/([^/]+)/);
-  return match ? match[1] : '';
-}
 
 interface Integration {
   id: string;
   name: string;
   description: string;
   logo: string;
-  status: "available" | "coming-soon";
+  status: "available" | "coming-soon" | "connected";
   createdBy?: string;
-  dateCreated?: string;
+  dateConnected?: string;
 }
 
 const availableIntegrations: Integration[] = [
@@ -63,18 +57,54 @@ const availableIntegrations: Integration[] = [
 ];
 
 function IntegrationsContent() {
-  const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
-  const slug = getSlug(pathname);
+  const params = useParams();
+  const slug = (params?.slug as string) || '';
   const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
-  const [integrations] = useState<Integration[]>([]); // Empty for now - no configured integrations
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, []);
+
+  // Fetch user's connected integrations
+  useEffect(() => {
+    const fetchIntegrations = async () => {
+      if (!slug) return;
+      
+      try {
+        const response = await fetch(`/api/integrations/list?slug=${slug}`);
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+          // Map database integrations to UI format
+          const connectedIntegrations: Integration[] = data.integrations.map((dbIntegration: any) => {
+            const available = availableIntegrations.find(i => i.id === dbIntegration.integration_type);
+            if (available) {
+              return {
+                ...available,
+                status: dbIntegration.is_connected ? "connected" : "available",
+                dateConnected: dbIntegration.last_sync_at || dbIntegration.created_at,
+              };
+            }
+            return null;
+          }).filter(Boolean) as Integration[];
+          
+          setIntegrations(connectedIntegrations);
+        }
+      } catch (error) {
+        console.error('Failed to fetch integrations:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchIntegrations();
+  }, [slug]);
 
   useEffect(() => {
     // Check for connection success/error from OAuth callback
@@ -87,8 +117,30 @@ function IntegrationsContent() {
         type: "success",
         message: `Successfully connected to ${integration?.name || connected}!`,
       });
-      // Clear the URL
+      // Clear the URL and refresh integrations
       window.history.replaceState({}, "", `/dashboard/integrations`);
+      // Refetch integrations to show updated status
+      if (slug) {
+        fetch(`/api/integrations/list?slug=${slug}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success) {
+              const connectedIntegrations: Integration[] = data.integrations.map((dbIntegration: any) => {
+                const available = availableIntegrations.find(i => i.id === dbIntegration.integration_type);
+                if (available) {
+                  return {
+                    ...available,
+                    status: dbIntegration.is_connected ? "connected" : "available",
+                    dateConnected: dbIntegration.last_sync_at || dbIntegration.created_at,
+                  } as Integration;
+                }
+                return null;
+              }).filter(Boolean) as Integration[];
+              setIntegrations(connectedIntegrations);
+            }
+          })
+          .catch(console.error);
+      }
     } else if (error) {
       const integration = availableIntegrations.find(i => i.id === error);
       setNotification({
@@ -100,7 +152,13 @@ function IntegrationsContent() {
     }
   }, [searchParams, slug]);
 
-  const filteredIntegrations = availableIntegrations.filter(integration => {
+  // Merge available integrations with connected ones
+  const allIntegrations = availableIntegrations.map(available => {
+    const connected = integrations.find(i => i.id === available.id);
+    return connected || available;
+  });
+
+  const filteredIntegrations = allIntegrations.filter(integration => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       return (
@@ -152,8 +210,8 @@ function IntegrationsContent() {
           )}
 
           {/* Header */}
-          <div className="mb-3">
-            <h1 className="text-[1.625rem] font-medium text-gray-900 mb-3" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+          <div className="mb-6">
+            <h1 className="text-[1.625rem] font-medium text-gray-900 mb-4" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
               Integrations
             </h1>
             <div className="relative w-full max-w-2xl">
@@ -169,73 +227,103 @@ function IntegrationsContent() {
             </div>
           </div>
 
-          {/* Empty State */}
-          {integrations.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 mb-12">
-              <div className="relative mb-6">
-                <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center">
-                  <Globe className="h-10 w-10 text-gray-400" strokeWidth={1.5} />
-                </div>
-                <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center">
-                  <span className="text-xs font-semibold text-gray-600">?</span>
-                </div>
+          {/* Connected Apps */}
+          {integrations.length > 0 && (
+            <div className="mb-8">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+                Connected Apps
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {integrations
+                  .filter(integration => integration.status === "connected")
+                  .map((integration) => (
+                    <motion.div
+                      key={integration.id}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => {
+                        setSelectedIntegration(integration);
+                        setIsDrawerOpen(true);
+                        // Store in sessionStorage to pass to drawer
+                        if (typeof window !== 'undefined') {
+                          sessionStorage.setItem('selectedIntegration', JSON.stringify(integration));
+                          window.dispatchEvent(new Event('openIntegrationDrawer'));
+                        }
+                      }}
+                      className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow cursor-pointer"
+                    >
+                      <div className="flex items-start gap-4">
+                        <IntegrationLogo name={integration.logo} size="lg" />
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <h4 className="text-sm font-semibold text-gray-900" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+                              {integration.name}
+                            </h4>
+                            <span className="px-2 py-0.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-full">
+                              Connected
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-600" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+                            {integration.description}
+                          </p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
               </div>
-              <h2 className="text-xl font-semibold text-gray-900 mb-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
-                No integrations configured
-              </h2>
-              <p className="text-sm text-gray-600 text-center max-w-md" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
-                Add an integration below for whichever CRM<br />or booking software you use.
-              </p>
             </div>
           )}
 
-          {/* Suggested Integrations */}
+          {/* Popular Integrations */}
           <div>
             <h3 className="text-sm font-semibold text-gray-900 mb-4" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
               Popular integrations
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredIntegrations.map((integration) => (
-                <motion.div
-                  key={integration.id}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => {
-                    if (integration.status === "available") {
-                      setSelectedIntegration(integration);
-                      setIsDrawerOpen(true);
-                      // Store in sessionStorage to pass to drawer
-                      if (typeof window !== 'undefined') {
-                        sessionStorage.setItem('selectedIntegration', JSON.stringify(integration));
-                        window.dispatchEvent(new Event('openIntegrationDrawer'));
+              {filteredIntegrations
+                .filter(integration => integration.status !== "connected")
+                .map((integration) => (
+                  <motion.div
+                    key={integration.id}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      if (integration.status === "available" || integration.status === "connected") {
+                        setSelectedIntegration(integration);
+                        setIsDrawerOpen(true);
+                        // Store in sessionStorage to pass to drawer
+                        if (typeof window !== 'undefined') {
+                          sessionStorage.setItem('selectedIntegration', JSON.stringify(integration));
+                          window.dispatchEvent(new Event('openIntegrationDrawer'));
+                        }
                       }
-                    }
-                  }}
-                  className={`bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow ${
-                    integration.status === "available" ? "cursor-pointer" : "cursor-not-allowed opacity-75"
-                  }`}
-                >
-                  <div className="flex items-start gap-4">
-                    <IntegrationLogo name={integration.logo} size="lg" />
+                    }}
+                    className={`bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow ${
+                      integration.status === "available" || integration.status === "connected" ? "cursor-pointer" : "cursor-not-allowed opacity-75"
+                    }`}
+                  >
+                    <div className="flex items-start gap-4">
+                      <IntegrationLogo name={integration.logo} size="lg" />
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <h4 className="text-sm font-semibold text-gray-900" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
-                          {integration.name}
-                        </h4>
-                        {integration.status === "coming-soon" && (
-                          <span className="px-2 py-0.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-full">
-                            Coming soon
-                          </span>
-                        )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <h4 className="text-sm font-semibold text-gray-900" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+                            {integration.name}
+                          </h4>
+                          {integration.status === "coming-soon" && (
+                            <span className="px-2 py-0.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-full">
+                              Coming soon
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-600" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+                          {integration.description}
+                        </p>
                       </div>
-                      <p className="text-xs text-gray-600" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
-                        {integration.description}
-                      </p>
                     </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                ))}
             </div>
           </div>
         </div>

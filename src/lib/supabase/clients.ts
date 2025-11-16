@@ -9,10 +9,13 @@ type GenericClient = SupabaseClient<any, "public", any>;
 export async function createSupabaseServerClient(): Promise<GenericClient> {
   const SUPABASE_URL = getRequiredServerEnv("NEXT_PUBLIC_SUPABASE_URL");
   const SUPABASE_ANON_KEY = getRequiredServerEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
-  
+
   const cookieStore = await cookies();
 
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: false, // Don't persist sessions - require password each time
+    },
     cookies: {
       get(name: string) {
         return cookieStore.get(name)?.value;

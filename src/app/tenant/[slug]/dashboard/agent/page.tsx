@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { ExternalLink, ChevronRight, Settings, Edit, Globe, Mic, Search, FileText, Plus, Trash2, ChevronDown, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { TypeformModal } from "@/components/ui/typeform-modal";
 
 interface FilterButtonProps {
   label: string;
@@ -188,6 +189,7 @@ export const dynamic = "force-dynamic";
 export default function AgentPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "knowledge-base">("overview");
   const [isAddDocumentOpen, setIsAddDocumentOpen] = useState(false);
+  const [isTypeformOpen, setIsTypeformOpen] = useState(false);
   const [openFilterDropdown, setOpenFilterDropdown] = useState<string | null>(null);
   const [tableWidth, setTableWidth] = useState<number>(0);
   const [activeFilters, setActiveFilters] = useState<Array<{ type: string; value: string }>>([]);
@@ -266,57 +268,64 @@ export default function AgentPage() {
   const firstMessage = "Hi, this is Matt from Reluit, we specialize in AI voice agents and have found a great opportunity for you. Is now a good time to talk for a minute?";
 
   return (
-    <div
-      className="page-content"
-      style={{
-        paddingLeft: '0px',
-        paddingTop: '0px',
-      }}
-    >
-      <div className="relative" style={{ paddingLeft: '72px', paddingRight: '48px' }}>
+    <>
+      <div
+        className="page-content"
+        style={{
+          paddingLeft: '0px',
+          paddingTop: '0px',
+        }}
+      >
+        <div className="relative" style={{ paddingLeft: '72px', paddingRight: '48px' }}>
         {/* Header */}
         <div ref={headerRef} className="mb-6">
           <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
             <h1 className="text-2xl font-medium text-gray-900" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
               {activeTab === "overview" ? "Agent Configuration" : "Agent Knowledge Base"}
             </h1>
-            {activeTab === "overview" && (
-              <button className="flex items-center gap-2 px-3 py-1.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors shrink-0 shadow-sm">
-                <Edit className="h-3.5 w-3.5" />
-                Request Edit
-              </button>
-            )}
-            {activeTab === "knowledge-base" && (
-              <div className="relative" ref={addDocumentButtonRef}>
+            <div className="flex items-center gap-4">
+              {activeTab === "overview" && (
                 <button
-                  onClick={() => setIsAddDocumentOpen(!isAddDocumentOpen)}
-                  className="px-3 py-1.5 text-sm text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
+                  onClick={() => setIsTypeformOpen(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors shrink-0 shadow-sm"
                 >
-                  Add document
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isAddDocumentOpen ? 'rotate-180' : ''}`} />
+                  <Edit className="h-3.5 w-3.5" />
+                  Request Edit
                 </button>
-                {isAddDocumentOpen && (
-                  <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg border border-gray-200 shadow-lg py-1 z-50">
-                    <button className="w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
-                      <Globe className="h-4 w-4" />
-                      Add URL
-                    </button>
-                    <button className="w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
-                      <FileText className="h-4 w-4" />
-                      Add Files
-                    </button>
-                    <button className="w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
-                      <span className="w-4 h-4 flex items-center justify-center text-sm font-semibold">T</span>
-                      Create Text
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+              {activeTab === "knowledge-base" && (
+                <div className="relative" ref={addDocumentButtonRef}>
+                  <button
+                    onClick={() => setIsAddDocumentOpen(!isAddDocumentOpen)}
+                    className="px-3 py-1.5 text-sm text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
+                  >
+                    Add document
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isAddDocumentOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {isAddDocumentOpen && (
+                    <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg border border-gray-200 shadow-lg py-1 z-50">
+                      <button className="w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+                        <Globe className="h-4 w-4" />
+                        Add URL
+                      </button>
+                      <button className="w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+                        <FileText className="h-4 w-4" />
+                        Add Files
+                      </button>
+                      <button className="w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+                        <span className="w-4 h-4 flex items-center justify-center text-sm font-semibold">T</span>
+                        Create Text
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
+        </div>
 
-          {/* Tabs */}
-          <div className="flex gap-1 border-b border-gray-200">
+        {/* Tabs */}
+        <div className="flex gap-1 border-b border-gray-200">
             <button
               onClick={() => setActiveTab("overview")}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
@@ -340,7 +349,6 @@ export default function AgentPage() {
               Knowledge Base
             </button>
           </div>
-        </div>
 
         {/* Tab Content */}
         {activeTab === "overview" && (
@@ -581,5 +589,9 @@ export default function AgentPage() {
         <div className="pb-8"></div>
       </div>
     </div>
+
+    {/* Typeform Modal - Outside wrapper to cover full page */}
+    <TypeformModal isOpen={isTypeformOpen} onClose={() => setIsTypeformOpen(false)} />
+    </>
   );
 }

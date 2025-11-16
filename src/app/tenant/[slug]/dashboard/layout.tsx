@@ -5,6 +5,7 @@ import { Home, Zap, Cpu, Plug, Settings, Search, CreditCard } from "lucide-react
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { ConversationDrawer } from "@/components/conversation-drawer";
 import { IntegrationDrawer } from "@/components/integrations/integration-drawer";
+import { DashboardPasswordPrompt } from "@/components/dashboard-password-prompt";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
@@ -33,6 +34,7 @@ export default function DashboardLayout({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [mockConversation, setMockConversation] = useState<Array<{type: 'user' | 'ai', message: string}>>([]);
   const [isIntegrationDrawerOpen, setIsIntegrationDrawerOpen] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // AI suggestions
   const aiSuggestions = [
@@ -93,6 +95,16 @@ export default function DashboardLayout({
     { id: "billing", label: "Billing", icon: <CreditCard strokeWidth={1.5} className="w-5 h-5" />, href: '/dashboard/billing' },
     { id: "settings", label: "Settings", icon: <Settings strokeWidth={1.5} className="w-5 h-5" />, href: '/dashboard/settings' },
   ];
+
+  // Show password prompt if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <DashboardPasswordPrompt 
+        slug={slug} 
+        onAuthenticated={() => setIsAuthenticated(true)} 
+      />
+    );
+  }
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -393,6 +405,9 @@ function IntegrationDrawerWrapper() {
     };
   }, []);
 
+  const params = useParams();
+  const currentSlug = (params?.slug as string) || '';
+
   return (
     <IntegrationDrawer
       isOpen={isOpen}
@@ -403,6 +418,7 @@ function IntegrationDrawerWrapper() {
         window.dispatchEvent(new Event('closeIntegrationDrawer'));
       }}
       integration={integration}
+      slug={currentSlug}
     />
   );
 }
