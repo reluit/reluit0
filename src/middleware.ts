@@ -100,7 +100,14 @@ export function middleware(request: NextRequest) {
     // Handle admin subdomain - rewrite to /admin
     if (subdomain === 'admin') {
       const urlWithAdmin = url.clone();
-      urlWithAdmin.pathname = '/admin';
+      if (url.pathname === '/' || url.pathname === '') {
+        urlWithAdmin.pathname = '/admin';
+      } else {
+        // Ensure we only have a single /admin prefix
+        urlWithAdmin.pathname = url.pathname.startsWith('/admin')
+          ? url.pathname
+          : `/admin${url.pathname}`;
+      }
       return NextResponse.rewrite(urlWithAdmin);
     }
 
