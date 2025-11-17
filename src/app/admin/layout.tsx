@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { LayoutDashboard, Users, BarChart3, CreditCard, Settings, Search, Shield, HelpCircle, Bot } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
@@ -17,6 +17,7 @@ interface NavItem {
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [selectedItem, setSelectedItem] = useState<string>("dashboard");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -264,17 +265,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               return (
                   <Tooltip key={item.id} delayDuration={0}>
                     <TooltipTrigger asChild>
-                <Link
-                  href={item.href}
-                  className={cn(
-                    "flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border text-gray-600 transition-all duration-200",
-                    isSelected
-                      ? "bg-white border-gray-200 text-gray-900 shadow-sm"
-                      : "border-transparent hover:border-gray-200 hover:bg-white hover:text-gray-900"
-                  )}
-                >
-                  {item.icon}
-                </Link>
+                      <Link
+                        href={item.href}
+                        prefetch={true}
+                        className={cn(
+                          "flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border text-gray-600 transition-all duration-200 cursor-pointer",
+                          isSelected
+                            ? "bg-white border-gray-200 text-gray-900 shadow-sm"
+                            : "border-transparent hover:border-gray-200 hover:bg-white hover:text-gray-900"
+                        )}
+                      >
+                        {item.icon}
+                      </Link>
                     </TooltipTrigger>
                     <TooltipContent side="right">
                       {item.label}
