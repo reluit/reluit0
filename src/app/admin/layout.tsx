@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from "react";
 import { LayoutDashboard, Users, BarChart3, CreditCard, Settings, Search, Shield, HelpCircle, Bot } from "lucide-react";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -265,18 +264,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               return (
                   <Tooltip key={item.id} delayDuration={0}>
                     <TooltipTrigger asChild>
-                      <Link
-                        href={item.href}
-                        prefetch={true}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (pathname !== item.href) {
+                            router.push(item.href);
+                          }
+                        }}
                         className={cn(
                           "flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border text-gray-600 transition-all duration-200 cursor-pointer",
                           isSelected
                             ? "bg-white border-gray-200 text-gray-900 shadow-sm"
                             : "border-transparent hover:border-gray-200 hover:bg-white hover:text-gray-900"
                         )}
+                        aria-pressed={isSelected}
+                        aria-label={item.label}
                       >
                         {item.icon}
-                      </Link>
+                      </button>
                     </TooltipTrigger>
                     <TooltipContent side="right">
                       {item.label}
