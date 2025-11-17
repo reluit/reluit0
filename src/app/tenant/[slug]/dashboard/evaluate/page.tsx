@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Search, X, Plus } from "lucide-react";
+import { Search, X, Plus, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FilterDropdown } from "@/components/filter-dropdown";
 
@@ -52,19 +52,6 @@ interface Conversation {
   status: "Successful" | "Failed" | "Pending";
 }
 
-const mockConversations: Conversation[] = [
-  { id: "1", date: "Nov 11, 2025, 1:54 PM", agent: "AI Cold Caller", duration: "1:35", messages: 7, status: "Successful" },
-  { id: "2", date: "Nov 11, 2025, 1:53 PM", agent: "Support agent", duration: "0:26", messages: 5, status: "Successful" },
-  { id: "3", date: "Nov 11, 2025, 9:21 AM", agent: "Support agent", duration: "0:09", messages: 1, status: "Successful" },
-  { id: "4", date: "Nov 11, 2025, 9:20 AM", agent: "Support agent", duration: "0:09", messages: 1, status: "Successful" },
-  { id: "5", date: "Nov 10, 2025, 3:44 PM", agent: "AI Cold Caller", duration: "3:30", messages: 15, status: "Successful" },
-  { id: "6", date: "Nov 10, 2025, 3:43 PM", agent: "AI Cold Caller", duration: "0:30", messages: 3, status: "Successful" },
-  { id: "7", date: "Nov 10, 2025, 3:43 PM", agent: "AI Cold Caller", duration: "0:32", messages: 3, status: "Successful" },
-  { id: "8", date: "Nov 10, 2025, 3:42 PM", agent: "AI Cold Caller", duration: "0:08", messages: 1, status: "Successful" },
-  { id: "9", date: "Nov 10, 2025, 3:33 PM", agent: "Support agent", duration: "0:42", messages: 4, status: "Successful" },
-  { id: "10", date: "Nov 10, 2025, 3:32 PM", agent: "Support agent", duration: "0:33", messages: 5, status: "Successful" },
-];
-
 const filterOptions = [
   "Date Before",
   "Date After",
@@ -90,12 +77,61 @@ export default function EvaluatePage() {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [tableWidth, setTableWidth] = useState<number>(0);
   const headerRef = useRef<HTMLDivElement>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const availableAgents = Array.from(new Set(mockConversations.map(c => c.agent)));
+  const availableAgents = Array.from(new Set(conversations.map(c => c.agent)));
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, []);
+
+  useEffect(() => {
+    fetchConversations();
+  }, []);
+
+  const fetchConversations = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch("/api/tenant/conversations?page_size=100");
+      const data = await response.json();
+
+      if (response.ok && data.conversations) {
+        // Map ElevenLabs conversations to our format
+        const mapped: Conversation[] = data.conversations.map((conv: any) => {
+          const startTime = new Date(conv.start_time_unix_secs * 1000);
+          const minutes = Math.floor(conv.call_duration_secs / 60);
+          const seconds = conv.call_duration_secs % 60;
+          const duration = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          
+          let status: "Successful" | "Failed" | "Pending" = "Pending";
+          if (conv.call_successful === "success") status = "Successful";
+          else if (conv.call_successful === "failure") status = "Failed";
+
+          return {
+            id: conv.conversation_id,
+            date: startTime.toLocaleString('en-US', { 
+              month: 'short', 
+              day: 'numeric', 
+              year: 'numeric', 
+              hour: 'numeric', 
+              minute: '2-digit' 
+            }),
+            agent: conv.agent_name || "Unknown Agent",
+            duration: duration,
+            messages: conv.message_count || 0,
+            status: status,
+          };
+        });
+
+        setConversations(mapped);
+      }
+    } catch (error) {
+      console.error("Error fetching conversations:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const updateTableWidth = () => {
@@ -145,7 +181,7 @@ export default function EvaluatePage() {
     setOpenFilterDropdown(null);
   };
 
-  const filteredConversations = mockConversations.filter(conv => {
+  const filteredConversations = conversations.filter(conv => {
     // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -275,7 +311,27 @@ export default function EvaluatePage() {
                 </tr>
               </thead>
               <tbody className="bg-white">
-                {filteredConversations.map((conversation, index) => (
+                {loading ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-12 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                        <p className="text-sm text-gray-500" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+                          Loading conversations...
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredConversations.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-12 text-center">
+                      <p className="text-sm text-gray-500" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+                        No conversations found
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredConversations.map((conversation, index) => (
                   <tr
                     key={conversation.id}
                     onClick={() => handleConversationClick(conversation)}
@@ -294,12 +350,19 @@ export default function EvaluatePage() {
                       {conversation.messages}
                     </td>
                     <td className="px-4 py-3 border-b border-gray-200 whitespace-nowrap">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-[5px] text-xs font-medium bg-green-100 text-green-800">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-[5px] text-xs font-medium ${
+                        conversation.status === "Successful" 
+                          ? "bg-green-100 text-green-800"
+                          : conversation.status === "Failed"
+                          ? "bg-red-100 text-red-800"
+                          : "bg-gray-100 text-gray-800"
+                      }`}>
                         {conversation.status}
                       </span>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>

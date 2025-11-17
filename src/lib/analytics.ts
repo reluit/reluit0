@@ -1,6 +1,8 @@
 import { addDays, startOfDay, subDays } from "date-fns";
 
 import { createSupabaseServerClient } from "./supabase/clients";
+import { createSupabaseServiceRoleClient } from "./supabase/clients";
+import { ELEVENLABS_API_KEY } from "./elevenlabs/client";
 
 export interface CallSession {
   id: string;
@@ -163,37 +165,114 @@ export async function getTenantDashboardData(
   const endDate = options.endDate ?? new Date();
   const startDate = subDays(endDate, days - 1);
 
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("call_sessions")
-    .select(
-      "id, started_at, duration_seconds, cost_credits, llm_cost_usd, was_successful, status, agent:agents(id, name, role)"
-    )
+  const supabase = createSupabaseServiceRoleClient();
+  
+  // Get all agents for this tenant
+  const { data: agents } = await supabase
+    .from("ai_agents")
+    .select("id, name, role, elevenlabs_agent_id")
     .eq("tenant_id", tenantId)
-    .gte("started_at", startDate.toISOString())
-    .lte("started_at", addDays(endDate, 1).toISOString())
-    .order("started_at", { ascending: true });
+    .not("elevenlabs_agent_id", "is", null);
 
-  if (error) {
-    throw new Error(`Failed to load call sessions: ${error.message}`);
+  if (!agents || agents.length === 0) {
+    // Return empty data if no agents
+    const emptySummary = calculateSummary([]);
+    return {
+      summary: emptySummary,
+      timeline: buildTimeline([], startDate, endDate),
+      topAgents: [],
+      sessions: [],
+      rangeStart: startDate.toISOString(),
+      rangeEnd: endDate.toISOString(),
+    };
   }
 
-  const sessions: CallSession[] = (data ?? []).map((session: any) => ({
-    id: session.id,
-    started_at: session.started_at,
-    duration_seconds: session.duration_seconds ?? 0,
-    cost_credits: Number(session.cost_credits ?? 0),
-    llm_cost_usd: Number(session.llm_cost_usd ?? 0),
-    was_successful: Boolean(session.was_successful),
-    status: session.status ?? "completed",
-    agent: session.agent
+  const agentIds = agents.map(a => a.elevenlabs_agent_id).filter(Boolean) as string[];
+  const agentMap = new Map(agents.map(a => [a.elevenlabs_agent_id, a]));
+
+  // Fetch conversations from ElevenLabs
+  const startUnix = Math.floor(startDate.getTime() / 1000);
+  const endUnix = Math.floor(addDays(endDate, 1).getTime() / 1000);
+
+  let allConversations: any[] = [];
+  let cursor: string | null = null;
+  let hasMore = true;
+
+  // Fetch all conversations for all agents (paginate if needed)
+  while (hasMore && allConversations.length < 1000) {
+    const queryParams = new URLSearchParams();
+    queryParams.append("page_size", "100");
+    queryParams.append("call_start_after_unix", startUnix.toString());
+    queryParams.append("call_start_before_unix", endUnix.toString());
+    if (cursor) queryParams.append("cursor", cursor);
+
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversations?${queryParams.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          "xi-api-key": ELEVENLABS_API_KEY,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error("Failed to fetch conversations from ElevenLabs");
+      break;
+    }
+
+    const data = await response.json();
+    const conversations = data.conversations || [];
+    
+    // Filter to only include conversations from tenant's agents
+    const tenantConversations = conversations.filter((conv: any) => 
+      agentIds.includes(conv.agent_id)
+    );
+    
+    allConversations = allConversations.concat(tenantConversations);
+    cursor = data.next_cursor;
+    hasMore = data.has_more && cursor !== null;
+  }
+
+  // Map ElevenLabs conversations to CallSession format
+  const sessions: CallSession[] = allConversations.map((conv: any) => {
+    const agent = agentMap.get(conv.agent_id);
+    const startTime = new Date(conv.start_time_unix_secs * 1000);
+    
+    // Map call_successful: "success" -> true, "failure" -> false, "unknown" -> false
+    const wasSuccessful = conv.call_successful === "success";
+    
+    // Map status
+    let status = "completed";
+    if (conv.status === "failed") status = "failed";
+    else if (conv.status === "done") status = "completed";
+    else if (conv.status === "in-progress" || conv.status === "processing") status = "in-progress";
+    else if (conv.status === "initiated") status = "initiated";
+
+    return {
+      id: conv.conversation_id,
+      started_at: startTime.toISOString(),
+      duration_seconds: conv.call_duration_secs || 0,
+      cost_credits: 0, // ElevenLabs doesn't provide cost in conversations API
+      llm_cost_usd: 0, // ElevenLabs doesn't provide LLM cost in conversations API
+      was_successful: wasSuccessful,
+      status: status,
+      agent: agent
       ? {
-          id: session.agent.id,
-          name: session.agent.name,
-          role: session.agent.role,
-        }
-      : null,
-  }));
+            id: agent.id,
+            name: agent.name || conv.agent_name || "Unknown Agent",
+            role: agent.role,
+          }
+        : {
+            id: conv.agent_id,
+            name: conv.agent_name || "Unknown Agent",
+            role: null,
+          },
+    };
+  });
+
+  // Sort by start time
+  sessions.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
 
   const summary = calculateSummary(sessions);
   const timeline = buildTimeline(sessions, startDate, endDate);

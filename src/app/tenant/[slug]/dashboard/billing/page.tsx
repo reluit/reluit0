@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { ExternalLink, Receipt, CreditCard, Loader2, CheckCircle2, XCircle, X } from "lucide-react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
+import { Dropdown } from "@/components/ui/dropdown";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ interface SubscriptionData {
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   stripe_price_id: string | null;
+  stripe_customer_id?: string | null;
 }
 
 interface Invoice {
@@ -40,194 +42,163 @@ export default function BillingPage() {
   const [selectedMonth, setSelectedMonth] = useState<string>("");
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [hasOneTimePayment, setHasOneTimePayment] = useState(false);
+  const [waitingForPayment, setWaitingForPayment] = useState(false);
+  const [tableWidth, setTableWidth] = useState<number>(0);
+  const headerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
     fetchSubscriptionData();
 
-    // Check for successful checkout (subscription or one-time payment)
+    // Check for successful payment from Stripe redirect
     const sessionId = searchParams.get('session_id');
-    const paymentSuccess = searchParams.get('payment');
-    const slugFromQuery = searchParams.get('slug');
 
-    console.log('\n🟡 [Billing] useEffect - START');
-    console.log(`[Billing] URL params: session_id=${sessionId}, payment=${paymentSuccess}, slug=${slugFromQuery}`);
+    if (sessionId) {
+      setWaitingForPayment(true);
 
-    if (sessionId || paymentSuccess === 'success') {
-      console.log(`[Billing] ✅ Session detected! Starting payment verification...`);
-      setPaymentSuccess(true);
-
-      // Polling logic to check payment status
-      let attempts = 0;
-      const maxAttempts = 15; // Increased attempts
-      let pollInterval: NodeJS.Timeout | null = null;
-
-      const pollPaymentStatus = async () => {
-        attempts++;
-        console.log(`\n🔄 [Billing] Polling attempt ${attempts}/${maxAttempts}`);
-        console.log(`[Billing] Fetching with session_id: ${sessionId}`);
-
+      // Verify payment status with Stripe
+      const verifyPayment = async () => {
         try {
-          // Fetch with session_id if available (more reliable)
-          const url = sessionId
-            ? `/api/stripe/subscription?slug=${slug}&session_id=${sessionId}`
-            : `/api/stripe/subscription?slug=${slug}`;
-
-          console.log(`[Billing] API URL: ${url}`);
-
-          const response = await fetch(url, {
+          console.log(`[Billing] Verifying payment for session: ${sessionId}`);
+          const response = await fetch(`/api/stripe/check-status?session_id=${sessionId}&slug=${slug}`, {
             cache: 'no-store',
             headers: {
               'Cache-Control': 'no-cache',
             },
           });
-
-          console.log(`[Billing] Response status: ${response.status}`);
-
           const data = await response.json();
 
-          console.log(`[Billing] API Response:`, {
-            hasOneTimePayment: data.hasOneTimePayment,
-            subscriptionStatus: data.subscription?.status || null,
-            invoicesCount: data.invoices?.length || 0,
-          });
+          console.log('[Billing] Payment verification response:', data);
 
-          if (response.ok) {
-            // Update state immediately
-            if (data.hasOneTimePayment !== undefined) {
-              console.log(`[Billing] 💰 Payment status: ${data.hasOneTimePayment ? '✅ PAID' : '❌ NOT PAID'}`);
-              setHasOneTimePayment(data.hasOneTimePayment);
-            } else {
-              console.log(`[Billing] ⚠️  hasOneTimePayment not in response!`);
+          if (response.ok && data.success && data.isPaid) {
+            console.log('[Billing] Payment verified successfully!');
+            
+            // Immediately update state if setup is complete
+            // But also check if we have invoices - if no invoices, setup is not complete
+            if (data.setupComplete !== false) {
+              // Will be updated when fetchSubscriptionData runs and checks invoices
+              console.log('[Billing] Setup marked as complete in UI');
             }
-            setSubscription(data.subscription);
-            setInvoices(data.invoices || []);
 
-            // If payment is confirmed, stop polling
-            if (data.hasOneTimePayment === true) {
-              console.log(`[Billing] 🎉 Payment confirmed! Stopping polling.`);
-              if (pollInterval) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-              }
+            setPaymentSuccess(true);
+            setWaitingForPayment(false);
 
-              // Clear URL params
-              const cleanUrl = slugFromQuery
-                ? `/dashboard/billing?slug=${slugFromQuery}`
-                : '/dashboard/billing';
-              console.log(`[Billing] Clearing URL params, new URL: ${cleanUrl}`);
-              window.history.replaceState({}, '', cleanUrl);
-              return; // Exit early
-            }
+            // Dispatch event to hide banner immediately
+            window.dispatchEvent(new Event('setupComplete'));
+
+            // Clear URL params
+            window.history.replaceState({}, '', window.location.pathname);
+
+            // Refresh subscription data to get latest from database
+            // Add a small delay to ensure database update is visible
+            setTimeout(async () => {
+            await fetchSubscriptionData();
+            }, 500);
           } else {
-            console.error(`[Billing] ❌ API Error:`, data.error);
+            setWaitingForPayment(false);
+            console.error('[Billing] Payment verification failed:', data.error || data.message);
+            // Still refresh data in case webhook updated it
+            setTimeout(async () => {
+              await fetchSubscriptionData();
+            }, 1000);
           }
         } catch (error) {
-          console.error(`[Billing] ❌ Fetch error:`, error);
-        }
-
-        // Stop after max attempts
-        if (attempts >= maxAttempts) {
-          console.log(`[Billing] ⏱️  Reached max attempts. Stopping polling.`);
-          if (pollInterval) {
-            clearInterval(pollInterval);
-            pollInterval = null;
-          }
-
-          // Final refresh
-          console.log(`[Billing] 🔄 Performing final refresh...`);
-          setTimeout(() => {
-            fetchSubscriptionData();
+          setWaitingForPayment(false);
+          console.error('[Billing] Error verifying payment:', error);
+          // Still refresh data in case webhook updated it
+          setTimeout(async () => {
+            await fetchSubscriptionData();
           }, 1000);
-
-          // Clear URL params after refresh
-          const cleanUrl = slugFromQuery
-            ? `/dashboard/billing?slug=${slugFromQuery}`
-            : '/dashboard/billing';
-          window.history.replaceState({}, '', cleanUrl);
         }
       };
 
-      // Start polling immediately, then every 2 seconds
-      console.log(`[Billing] 🚀 Starting initial poll...`);
-      pollPaymentStatus();
-      console.log(`[Billing] ⏰ Starting poll interval (2s)...`);
-      pollInterval = setInterval(pollPaymentStatus, 2000);
-
-      // Cleanup function
-      return () => {
-        if (pollInterval) {
-          clearInterval(pollInterval);
-        }
-      };
+      verifyPayment();
     }
-
-    console.log(`[Billing] useEffect - END\n`);
   }, [slug, searchParams]);
+
+  // Calculate table width - reduced from evaluate page
+  useEffect(() => {
+    const updateTableWidth = () => {
+      const headerEl = headerRef.current;
+      const contentEl = headerEl?.closest('.page-content');
+      if (!headerEl || !contentEl) return;
+
+      const headerRect = headerEl.getBoundingClientRect();
+      const contentRect = contentEl.getBoundingClientRect();
+
+      // Calculate width: from header left edge to content right edge, but reduce more
+      const textLeft = headerRect.left;
+      const rightEdge = contentRect.right - 48; // 48px padding on right
+      const width = rightEdge - textLeft - 600; // Reduce by 600px for smaller table
+
+      if (width > 0) {
+        setTableWidth(Math.min(width, 700)); // Cap at 700px max (reduced from 800px)
+      }
+    };
+
+    // Use setTimeout to avoid blocking initial render
+    const timeout = setTimeout(() => {
+      updateTableWidth();
+      window.addEventListener('resize', updateTableWidth);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeout);
+      window.removeEventListener('resize', updateTableWidth);
+    };
+  }, []);
 
   const fetchSubscriptionData = async () => {
     if (!slug) return;
 
-    console.log('\n🔄 [Billing] ===== fetchSubscriptionData START =====');
-    console.log(`[Billing] Slug: ${slug}`);
-    console.log(`[Billing] Loading: ${loading}`);
-
     try {
       setLoading(true);
-      console.log(`[Billing] Fetching from: /api/stripe/subscription?slug=${slug}`);
+
+      // Use AbortController for faster cancellation if component unmounts
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
       const response = await fetch(`/api/stripe/subscription?slug=${slug}`, {
         cache: 'no-store',
+        signal: controller.signal,
         headers: {
           'Cache-Control': 'no-cache',
         },
       });
 
-      console.log(`[Billing] Response status: ${response.status}`);
-      console.log(`[Billing] Response ok: ${response.ok}`);
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch subscription data');
+      }
 
       const data = await response.json();
 
-      console.log(`[Billing] Response data:`, {
-        subscriptionId: data.subscription?.id || null,
-        subscriptionStatus: data.subscription?.status || null,
-        invoicesCount: data.invoices?.length || 0,
-        hasOneTimePayment: data.hasOneTimePayment,
-      });
-
-      if (response.ok) {
-        console.log(`[Billing] Updating state with subscription and invoices...`);
         setSubscription(data.subscription);
         const newInvoices = data.invoices || [];
         setInvoices(newInvoices);
 
-        // Update one-time payment status from Stripe API
-        if (data.hasOneTimePayment !== undefined) {
-          console.log(`[Billing] ✅ Payment status from Stripe: ${data.hasOneTimePayment ? '✅ PAID' : '❌ NOT PAID'}`);
-          setHasOneTimePayment(data.hasOneTimePayment);
-        } else {
-          console.log(`[Billing] ⚠️  hasOneTimePayment not in response data`);
-        }
+      // Update setup completion status: if no invoices, setup is not complete
+      // Setup is complete only if there are invoices (invoices indicate payment was made)
+      const hasInvoices = newInvoices.length > 0;
+      setHasOneTimePayment(hasInvoices);
 
-        // Set default month to most recent invoice if no month is selected or if invoices changed
+        // Set default month to most recent invoice if no month is selected
         if (newInvoices.length > 0 && !selectedMonth) {
           const mostRecent = newInvoices[0];
           const dateStr = mostRecent.period_start || mostRecent.created_at;
           if (dateStr) {
             const date = new Date(dateStr);
             const monthStr = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-            console.log(`[Billing] Setting default month to: ${monthStr}`);
             setSelectedMonth(monthStr);
           }
         }
-      } else {
-        console.error(`[Billing] ❌ API Error:`, data.error);
+    } catch (error: any) {
+      if (error.name !== 'AbortError') {
+        console.error('Failed to fetch subscription data:', error);
       }
-    } catch (error) {
-      console.error(`[Billing] ❌ Fetch error:`, error);
     } finally {
       setLoading(false);
-      console.log(`[Billing] ===== fetchSubscriptionData END =====\n`);
     }
   };
 
@@ -257,58 +228,33 @@ export default function BillingPage() {
     }
   };
 
-  const handleSubscribe = async (priceId: string) => {
+  const handleSetupSubscription = async () => {
     setProcessing(true);
     try {
+      // Get setup fee amount from environment
+      const setupFeeAmount = parseInt(process.env.NEXT_PUBLIC_STRIPE_SETUP_FEE_AMOUNT || '0');
+
       const response = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
-          priceId,
+        body: JSON.stringify({
           slug,
+          setupFeeAmount,
         }),
       });
 
       const data = await response.json();
 
       if (response.ok && data.url) {
-        window.location.href = data.url;
+        // Open Stripe Checkout in new tab
+        window.open(data.url, '_blank', 'noopener,noreferrer');
       } else {
         alert(data.error || 'Failed to create checkout session');
       }
     } catch (error) {
       console.error('Failed to create checkout:', error);
-      alert('Failed to create checkout session');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleOneTimePayment = async (priceId: string) => {
-    setProcessing(true);
-    try {
-      const response = await fetch('/api/stripe/checkout-one-time', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          priceId,
-          slug,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.url) {
-        window.location.href = data.url;
-      } else {
-        alert(data.error || 'Failed to create checkout session');
-      }
-    } catch (error) {
-      console.error('Failed to create one-time checkout:', error);
       alert('Failed to create checkout session');
     } finally {
       setProcessing(false);
@@ -384,8 +330,9 @@ export default function BillingPage() {
     );
   };
 
-  // Get unique months from invoices (including one-time payments using created_at)
-  const months = Array.from(
+  // Get unique months from invoices (memoized for performance)
+  const months = useMemo(() => {
+    return Array.from(
     new Set(
       invoices
         .map(inv => {
@@ -398,23 +345,19 @@ export default function BillingPage() {
         .filter(Boolean) as string[]
     )
   ).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  }, [invoices]);
 
-  const filteredInvoices = selectedMonth
-    ? invoices.filter(inv => {
+  // Filter invoices by selected month (memoized for performance)
+  const filteredInvoices = useMemo(() => {
+    if (!selectedMonth) return invoices;
+    return invoices.filter(inv => {
         const dateStr = inv.period_start || inv.created_at;
         if (!dateStr) return false;
         const date = new Date(dateStr);
         const monthStr = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
         return monthStr === selectedMonth;
-      })
-    : invoices;
-
-  // Debug logging for render state
-  console.log(`\n🎨 [Billing] Rendering decision:`);
-  console.log(`[Billing]   loading: ${loading}`);
-  console.log(`[Billing]   hasOneTimePayment: ${hasOneTimePayment ? '✅ TRUE' : '❌ FALSE'}`);
-  console.log(`[Billing]   invoices count: ${invoices.length}`);
-  console.log(`[Billing]   Showing: ${hasOneTimePayment ? 'INVOICES TABLE' : 'PAYMENT GATE'}\n`);
+    });
+  }, [invoices, selectedMonth]);
 
   if (loading) {
     return (
@@ -443,33 +386,50 @@ export default function BillingPage() {
               <h1 className="text-2xl font-semibold text-gray-900 mb-3">
                 Complete Setup Payment
               </h1>
-              <p className="text-sm text-gray-600 mb-6">
-                Please complete your one-time setup payment to access your billing information and invoices.
-              </p>
-              <button
-                onClick={() => {
-                  const oneTimePriceId = (process.env.NEXT_PUBLIC_STRIPE_ONE_TIME_PRICE_ID || '').trim();
-                  if (!oneTimePriceId) {
-                    alert('One-time payment price ID not configured. Please set NEXT_PUBLIC_STRIPE_ONE_TIME_PRICE_ID in your .env file.');
-                    return;
-                  }
-                  handleOneTimePayment(oneTimePriceId);
-                }}
-                disabled={processing}
-                className="w-full px-6 py-3 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {processing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <CreditCard className="w-4 h-4" />
-                    Complete Payment
-                  </>
-                )}
-              </button>
+
+              {waitingForPayment ? (
+                <>
+                  <div className="mb-6">
+                    <div className="flex items-center justify-center gap-2 mb-3">
+                      <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                      <p className="text-sm font-medium text-blue-600">
+                        Waiting for payment...
+                      </p>
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      Please complete your payment in the invoice tab. This page will automatically update once payment is received.
+                    </p>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Keep this page open while you complete the payment.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-600 mb-6">
+                    To access your dashboard and all platform features, please set up your subscription with a one-time setup fee. You'll be able to manage your subscription through the Stripe customer portal.
+                  </p>
+                  <button
+                    onClick={() => {
+                      handleSetupSubscription();
+                    }}
+                    disabled={processing}
+                    className="w-full px-6 py-3 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {processing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="w-4 h-4" />
+                        Setup Subscription
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -519,7 +479,7 @@ export default function BillingPage() {
 
         <div className="relative" style={{ paddingLeft: '72px', paddingRight: '48px' }}>
           {/* Header */}
-          <div className="mb-3">
+          <div ref={headerRef} className="mb-3">
             <h1 className="text-[1.625rem] font-medium text-gray-900">
               Billing
             </h1>
@@ -527,35 +487,51 @@ export default function BillingPage() {
 
           {/* Invoices Section */}
           <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Receipt className="w-4 h-4 text-gray-600" strokeWidth={1.5} />
-              <h2 className="text-sm font-medium text-gray-900">Invoices</h2>
-              {months.length > 0 && (
-                <div className="ml-auto flex items-center gap-2">
-                  <select
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="appearance-none bg-white border border-gray-200 rounded-[5px] px-3 py-1 pr-8 text-xs font-medium text-gray-900 hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-300 cursor-pointer transition-all"
-                    style={{
-                      backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 10 10\'%3E%3Cpath fill=\'%236b7280\' d=\'M5 7L1 3h8z\'/%3E%3C/svg%3E")',
-                      backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'right 6px center',
-                      paddingRight: '24px'
-                    }}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-gray-600" strokeWidth={1.5} />
+                <h2 className="text-sm font-medium text-gray-900">Invoices</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Manage Subscription Button - Always show if we have invoices or subscription */}
+                {(subscription || invoices.length > 0 || hasOneTimePayment) && (
+                  <button
+                    onClick={handleManageSubscription}
+                    disabled={processing}
+                    className="appearance-none bg-white border border-gray-200 rounded-[5px] px-3 py-1 text-xs font-medium text-gray-900 hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-300 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                   >
-                    <option value="">All months</option>
-                    {months.map((month) => (
-                      <option key={month} value={month}>
-                        {month}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+                    {processing ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Opening...
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="w-3 h-3" />
+                        Manage Subscription
+                      </>
+                    )}
+                  </button>
+                )}
+                {invoices.length > 0 && months.length > 0 && (
+                  <Dropdown
+                    value={selectedMonth}
+                    onChange={(value) => setSelectedMonth(value)}
+                    options={[
+                      { value: "", label: "All months" },
+                      ...months.map((month) => ({
+                        value: month,
+                        label: month,
+                      })),
+                    ]}
+                    size="sm"
+                  />
+                )}
+              </div>
             </div>
 
             {/* Invoices Table */}
-            <div className="bg-white rounded-lg overflow-hidden" style={{ width: 'max-content', maxWidth: '800px' }}>
+            <div className="bg-white rounded-lg overflow-hidden" style={{ width: tableWidth ? `${tableWidth}px` : 'auto' }}>
                 {filteredInvoices.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full" style={{ tableLayout: 'auto' }}>

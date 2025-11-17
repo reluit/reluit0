@@ -50,63 +50,120 @@ export interface Invoice {
 }
 
 /**
- * Get or create Stripe customer for a tenant
+ * Get or create Stripe customer for a user (using Supabase user ID)
+ * This ensures ONE customer per user across all tenants
+ * 
+ * IMPORTANT: This function guarantees that each Supabase user_id maps to exactly ONE Stripe customer.
+ * If multiple customers exist with the same user_id, it will use the oldest one and log a warning.
  */
 export async function getOrCreateStripeCustomer(
-  tenantId: string,
+  userId: string,
   email?: string,
-  name?: string
+  name?: string,
+  tenantId?: string
 ): Promise<string> {
   const supabase = createSupabaseServiceRoleClient();
   const stripe = getStripeClient();
 
-  // Check if customer already exists
-  const { data: existing } = await supabase
-    .from('subscriptions')
-    .select('stripe_customer_id')
-    .eq('tenant_id', tenantId)
-    .not('stripe_customer_id', 'is', null)
-    .maybeSingle();
-
-  if (existing?.stripe_customer_id) {
-    return existing.stripe_customer_id;
+  // Step 1: Find existing customer(s) by user_id in metadata
+  // Use Stripe Search API first (fastest and most reliable)
+  let existingCustomers: Stripe.Customer[] = [];
+  
+  try {
+    const searchResults = await stripe.customers.search({
+      query: `metadata['user_id']:'${userId}'`,
+      limit: 100, // Get all customers with this user_id
+    });
+    
+    existingCustomers = searchResults.data;
+    console.log(`[Stripe] Found ${existingCustomers.length} customer(s) with user_id ${userId}`);
+  } catch (searchError) {
+    // Fallback: list all customers and filter by user_id
+    console.warn('[Stripe] Search API not available, falling back to list:', searchError);
+    const allCustomers = await stripe.customers.list({
+      limit: 100,
+    });
+    
+    existingCustomers = allCustomers.data.filter(
+      c => c.metadata?.user_id === userId
+    );
+    console.log(`[Stripe] Found ${existingCustomers.length} customer(s) with user_id ${userId} via list`);
   }
 
-  // Get tenant info if email/name not provided
-  if (!email || !name) {
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select('name')
-      .eq('id', tenantId)
-      .single();
+  // Step 2: If multiple customers exist, use the oldest one (first created)
+  // Log a warning if duplicates are found
+  let customerToUse: Stripe.Customer | null = null;
+  
+  if (existingCustomers.length > 0) {
+    // Sort by created date (oldest first) and use the first one
+    existingCustomers.sort((a, b) => a.created - b.created);
+    customerToUse = existingCustomers[0];
 
-    if (tenant) {
-      name = name || tenant.name;
+    if (existingCustomers.length > 1) {
+      console.warn(`[Stripe] ⚠️  WARNING: Found ${existingCustomers.length} customers with user_id ${userId}`);
+      console.warn(`[Stripe] Using oldest customer: ${customerToUse.id} (created: ${new Date(customerToUse.created * 1000).toISOString()})`);
+      console.warn(`[Stripe] Other customers: ${existingCustomers.slice(1).map(c => c.id).join(', ')}`);
+      console.warn(`[Stripe] Consider cleaning up duplicate customers.`);
+    }
+  }
+
+  // Step 3: If customer exists, update and return
+  if (customerToUse) {
+    // Update customer info if email/name provided and different
+    const needsUpdate = 
+      (email && customerToUse.email !== email) ||
+      (name && customerToUse.name !== name);
+    
+    if (needsUpdate) {
+      await stripe.customers.update(customerToUse.id, {
+        email: email || customerToUse.email || undefined,
+        name: name || customerToUse.name || undefined,
+      });
+      console.log(`[Stripe] Updated customer ${customerToUse.id} info`);
     }
 
-    // Get owner email if not provided
+    // Ensure customer ID is saved to subscriptions table for this tenant
+    if (tenantId) {
+      await supabase
+        .from('subscriptions')
+        .upsert({
+          tenant_id: tenantId,
+          stripe_customer_id: customerToUse.id,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'tenant_id',
+        });
+    }
+
+    return customerToUse.id;
+  }
+
+  // Step 4: No customer exists, create a new one
+  // Get user email if not provided
     if (!email) {
-      const { data: owner } = await supabase
-        .from('tenant_users')
-        .select('email')
-        .eq('tenant_id', tenantId)
-        .eq('role', 'owner')
-        .maybeSingle();
-
-      email = owner?.email || undefined;
+    try {
+      const { data: authUser } = await supabase.auth.admin.getUserById(userId);
+      email = authUser?.user?.email || undefined;
+    } catch (err) {
+      console.warn(`[Stripe] Could not fetch user email for ${userId}:`, err);
     }
   }
 
-  // Create Stripe customer
+  // Create new Stripe customer with user_id in metadata
+  // This is the ONLY place where new customers should be created
   const customer = await stripe.customers.create({
     email,
     name,
     metadata: {
-      tenant_id: tenantId,
+      user_id: userId, // REQUIRED: Always include user_id
+      ...(tenantId ? { tenant_id: tenantId } : {}),
     },
   });
 
-  // Save customer ID to database
+  console.log(`[Stripe] ✅ Created new customer ${customer.id} for user_id ${userId}`);
+
+  // Save customer ID to subscriptions table for this tenant
+  if (tenantId) {
   await supabase
     .from('subscriptions')
     .upsert({
@@ -116,6 +173,7 @@ export async function getOrCreateStripeCustomer(
     }, {
       onConflict: 'tenant_id',
     });
+  }
 
   return customer.id;
 }

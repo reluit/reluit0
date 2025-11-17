@@ -58,6 +58,14 @@ export function ConversationDrawer({ isOpen, onClose, conversation }: Conversati
   const [activeTab, setActiveTab] = useState<"overview" | "transcription">("overview");
   const [showSpeedDropdown, setShowSpeedDropdown] = useState(false);
   const [showOptionsDropdown, setShowOptionsDropdown] = useState(false);
+  const [conversationDetails, setConversationDetails] = useState<any>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
 
   // Generate mock waveform data (replace with real audio data in production)
   const waveformData = useMemo(() => {
@@ -83,6 +91,111 @@ export function ConversationDrawer({ isOpen, onClose, conversation }: Conversati
     });
     return data;
   }, []);
+
+  // Fetch conversation details when conversation changes
+  useEffect(() => {
+    if (conversation?.id) {
+      fetchConversationDetails();
+    }
+  }, [conversation?.id]);
+
+  // Initialize audio element
+  useEffect(() => {
+    if (audioUrl) {
+      const audio = new Audio();
+      audio.src = audioUrl;
+      audio.preload = "metadata";
+      
+      audio.addEventListener('loadedmetadata', () => {
+        setDuration(audio.duration);
+      });
+      
+      audio.addEventListener('timeupdate', () => {
+        setCurrentTime(audio.currentTime);
+      });
+      
+      audio.addEventListener('ended', () => {
+        setIsPlaying(false);
+        setCurrentTime(0);
+      });
+
+      setAudioElement(audio);
+      
+      return () => {
+        audio.pause();
+        audio.src = '';
+      };
+    }
+  }, [audioUrl]);
+
+  const fetchConversationDetails = async () => {
+    if (!conversation?.id) return;
+    
+    try {
+      setLoading(true);
+      const response = await fetch(`/api/tenant/conversations/${conversation.id}`);
+      const data = await response.json();
+
+      if (response.ok && data.conversation) {
+        setConversationDetails(data.conversation);
+        
+        // Only set audio URL if conversation has audio
+        if (data.conversation.hasAudio && data.audioUrl) {
+          setAudioUrl(data.audioUrl);
+        } else {
+          setAudioUrl(null);
+        }
+        
+        // Use the parsed messages from the API
+        if (data.messages && data.messages.length > 0) {
+          const formattedMessages: Message[] = data.messages.map((msg: any) => ({
+            id: msg.id,
+            speaker: msg.speaker,
+            text: msg.text,
+            timestamp: msg.timestamp,
+            ttsTime: undefined, // Not available in API response
+            asrTime: undefined, // Not available in API response
+          }));
+          setMessages(formattedMessages);
+        } else if (data.conversation.transcriptSummary) {
+          // Fallback to summary if no messages
+          const summaryMessages: Message[] = [
+            {
+              id: "1",
+              speaker: "ai",
+              text: data.conversation.transcriptSummary,
+              timestamp: "0:00",
+            },
+          ];
+          setMessages(summaryMessages);
+        } else {
+          setMessages([]);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching conversation details:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePlayPause = () => {
+    if (!audioElement) return;
+    
+    if (isPlaying) {
+      audioElement.pause();
+      setIsPlaying(false);
+    } else {
+      audioElement.play();
+      setIsPlaying(true);
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -157,10 +270,21 @@ export function ConversationDrawer({ isOpen, onClose, conversation }: Conversati
 
                 {/* Controls */}
                 <div className="flex items-center gap-3">
-                  <button className="flex items-center justify-center w-9 h-9 rounded-lg bg-black hover:bg-gray-800 transition-colors flex-shrink-0">
+                  <button 
+                    onClick={handlePlayPause}
+                    disabled={!audioUrl || loading}
+                    className="flex items-center justify-center w-9 h-9 rounded-lg bg-black hover:bg-gray-800 transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isPlaying ? (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="white" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="2" y="1.5" width="3" height="9" />
+                        <rect x="7" y="1.5" width="3" height="9" />
+                      </svg>
+                    ) : (
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="white" xmlns="http://www.w3.org/2000/svg">
                       <path d="M3 1.5L10.5 6L3 10.5V1.5Z" />
                     </svg>
+                    )}
                   </button>
                   <button className="text-gray-700 hover:bg-gray-100 p-2 rounded-lg transition-colors flex-shrink-0">
                     <CornerUpLeft className="h-5 w-5" strokeWidth={2} />
@@ -203,7 +327,9 @@ export function ConversationDrawer({ isOpen, onClose, conversation }: Conversati
                       </AnimatePresence>
                     </div>
 
-                    <span className="text-sm text-gray-600 whitespace-nowrap font-medium">0:00 / {conversation.duration}</span>
+                    <span className="text-sm text-gray-600 whitespace-nowrap font-medium">
+                      {formatTime(currentTime)} / {duration > 0 ? formatTime(duration) : conversation.duration}
+                    </span>
 
                     <div className="relative">
                       <button
@@ -222,10 +348,19 @@ export function ConversationDrawer({ isOpen, onClose, conversation }: Conversati
                           >
                             <button
                               onClick={() => {
-                                console.log('Download audio');
+                                if (audioUrl) {
+                                  const link = document.createElement('a');
+                                  link.href = audioUrl;
+                                  link.download = `conversation-${conversation.id}.mp3`;
+                                  link.setAttribute('download', '');
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  document.body.removeChild(link);
+                                }
                                 setShowOptionsDropdown(false);
                               }}
-                              className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+                              disabled={!audioUrl}
+                              className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
@@ -234,10 +369,14 @@ export function ConversationDrawer({ isOpen, onClose, conversation }: Conversati
                             </button>
                             <button
                               onClick={() => {
-                                console.log('Copy transcript');
+                                const transcriptText = messages.map(m => `${m.speaker === 'ai' ? 'AI' : 'User'}: ${m.text}`).join('\n\n');
+                                if (transcriptText) {
+                                  navigator.clipboard.writeText(transcriptText);
+                                }
                                 setShowOptionsDropdown(false);
                               }}
-                              className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+                              disabled={messages.length === 0}
+                              className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
@@ -280,11 +419,17 @@ export function ConversationDrawer({ isOpen, onClose, conversation }: Conversati
               {/* Tab Content */}
               {activeTab === "overview" && (
                   <div className="space-y-4">
+                    {loading ? (
+                      <div className="text-center py-8">
+                        <p className="text-sm text-gray-500">Loading conversation details...</p>
+                      </div>
+                    ) : (
+                      <>
                     {/* Summary */}
                     <div>
                       <h3 className="text-lg font-semibold text-gray-900 mb-2">Summary</h3>
                       <p className="text-sm text-gray-700 leading-relaxed">
-                        The user asked the agent "What's a real whip?" and then "What is real whip?". The agent stated it did not understand the question and asked for clarification.
+                            {conversationDetails?.transcriptSummary || conversationDetails?.callSummaryTitle || "No summary available"}
                       </p>
                     </div>
 
@@ -303,7 +448,17 @@ export function ConversationDrawer({ isOpen, onClose, conversation }: Conversati
                     {/* Date */}
                     <div className="flex items-center justify-between py-2">
                       <span className="text-sm font-medium text-gray-700">Date</span>
-                      <span className="text-sm text-gray-900">Last Tuesday, 1:53 PM</span>
+                      <span className="text-sm text-gray-900">
+                        {conversationDetails?.startTime
+                          ? new Date(conversationDetails.startTime * 1000).toLocaleString('en-US', {
+                              weekday: 'long',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })
+                          : conversation.date}
+                      </span>
                     </div>
 
                     <div className="border-t border-gray-200"></div>
@@ -311,41 +466,86 @@ export function ConversationDrawer({ isOpen, onClose, conversation }: Conversati
                     {/* Connection duration */}
                     <div className="flex items-center justify-between py-2">
                       <span className="text-sm font-medium text-gray-700">Connection duration</span>
-                      <span className="text-sm text-gray-900">{conversation.duration}</span>
+                      <span className="text-sm text-gray-900">
+                        {conversationDetails?.duration
+                          ? `${Math.floor(conversationDetails.duration / 60)}:${(conversationDetails.duration % 60).toString().padStart(2, '0')}`
+                          : conversation.duration}
+                      </span>
                     </div>
+
+                    {/* Cost */}
+                    {conversationDetails?.cost !== null && conversationDetails?.cost !== undefined && (
+                      <>
+                    <div className="border-t border-gray-200"></div>
+                    <div className="flex items-center justify-between py-2">
+                          <span className="text-sm font-medium text-gray-700">Cost</span>
+                          <span className="text-sm text-gray-900 font-medium">{conversationDetails.cost} credits</span>
+                    </div>
+                      </>
+                    )}
+
+                    {/* LLM Usage */}
+                    {conversationDetails?.charging?.llm_usage && (
+                      <>
+                    <div className="border-t border-gray-200"></div>
+                    <div className="flex items-center justify-between py-2">
+                          <span className="text-sm font-medium text-gray-700">LLM Usage</span>
+                          <div className="text-right">
+                            {conversationDetails.charging.llm_price && (
+                              <p className="text-sm text-gray-900 font-medium">
+                                ${conversationDetails.charging.llm_price.toFixed(6)}
+                              </p>
+                            )}
+                            {conversationDetails.charging.llm_charge && (
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {conversationDetails.charging.llm_charge} credits
+                              </p>
+                            )}
+                          </div>
+                    </div>
+                      </>
+                    )}
 
                     <div className="border-t border-gray-200"></div>
 
-                    {/* Credits (call) */}
+                        {/* Rating */}
+                        {conversationDetails?.rating && (
+                          <>
+                            <div className="border-t border-gray-200"></div>
                     <div className="flex items-center justify-between py-2">
-                      <span className="text-sm font-medium text-gray-700">Credits (call)</span>
-                      <span className="text-sm text-gray-900 font-medium">145</span>
-                    </div>
-
-                    <div className="border-t border-gray-200"></div>
-
-                    {/* Credits (LLM) */}
-                    <div className="flex items-center justify-between py-2">
-                      <span className="text-sm font-medium text-gray-700">Credits (LLM)</span>
-                      <span className="text-sm text-gray-900 font-medium">3</span>
-                    </div>
-
-                    <div className="border-t border-gray-200"></div>
-
-                    {/* LLM Cost */}
-                    <div className="flex items-center justify-between py-2">
-                      <span className="text-sm font-medium text-gray-700">LLM Cost</span>
-                      <div className="text-right">
-                        <p className="text-sm text-gray-900 font-medium">$0.00071 / min</p>
-                        <p className="text-xs text-gray-500 mt-0.5">Total: $0.00031</p>
+                              <span className="text-sm font-medium text-gray-700">Rating</span>
+                              <span className="text-sm text-gray-900 font-medium">{conversationDetails.rating}/5</span>
                       </div>
+                          </>
+                        )}
+
+                        {/* Direction */}
+                        {conversationDetails?.direction && (
+                          <>
+                            <div className="border-t border-gray-200"></div>
+                            <div className="flex items-center justify-between py-2">
+                              <span className="text-sm font-medium text-gray-700">Direction</span>
+                              <span className="text-sm text-gray-900 capitalize">{conversationDetails.direction}</span>
                     </div>
+                          </>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
 
               {activeTab === "transcription" && (
                   <div className="space-y-4">
-                    {mockMessages.map((message) => (
+                    {loading ? (
+                      <div className="text-center py-8">
+                        <p className="text-sm text-gray-500">Loading transcript...</p>
+                      </div>
+                    ) : messages.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-sm text-gray-500">No transcript available</p>
+                      </div>
+                    ) : (
+                      messages.map((message) => (
                       <div
                         key={message.id}
                         className={`flex items-start gap-3 ${message.speaker === "ai" ? "justify-start" : "justify-end"}`}
@@ -390,7 +590,8 @@ export function ConversationDrawer({ isOpen, onClose, conversation }: Conversati
                           </div>
                         )}
                       </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 )}
             </div>

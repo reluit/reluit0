@@ -381,6 +381,8 @@ function HomePageContent() {
             })}
           </div>
         </div>
+      </div>
+    </div>
 
       {/* Edit Widgets Modal */}
       <AnimatePresence>
@@ -530,8 +532,6 @@ function HomePageContent() {
 
       {/* Typeform Modal */}
       <TypeformModal isOpen={isTypeformOpen} onClose={() => setIsTypeformOpen(false)} />
-      </div>
-    </div>
     </>
   );
 }

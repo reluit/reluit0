@@ -6,6 +6,7 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/comp
 import { ConversationDrawer } from "@/components/conversation-drawer";
 import { IntegrationDrawer } from "@/components/integrations/integration-drawer";
 import { DashboardPasswordPrompt } from "@/components/dashboard-password-prompt";
+import { SetupBanner } from "@/app/_components/setup-banner";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
@@ -35,6 +36,8 @@ export default function DashboardLayout({
   const [mockConversation, setMockConversation] = useState<Array<{type: 'user' | 'ai', message: string}>>([]);
   const [isIntegrationDrawerOpen, setIsIntegrationDrawerOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [setupComplete, setSetupComplete] = useState(true);
+  const [setupLoading, setSetupLoading] = useState(true);
 
   // AI suggestions
   const aiSuggestions = [
@@ -87,6 +90,43 @@ export default function DashboardLayout({
     };
   }, []);
 
+  // Fetch setup status
+  useEffect(() => {
+    const fetchSetupStatus = async () => {
+      if (!slug) return;
+
+      try {
+        const response = await fetch(`/api/stripe/subscription?slug=${slug}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache',
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setSetupComplete(data.setupComplete || false);
+        }
+      } catch (error) {
+        console.error('Failed to fetch setup status:', error);
+      } finally {
+        setSetupLoading(false);
+      }
+    };
+
+    fetchSetupStatus();
+  }, [slug]);
+
+  // Listen for setup completion events
+  useEffect(() => {
+    const handleSetupComplete = () => {
+      setSetupComplete(true);
+    };
+
+    window.addEventListener('setupComplete', handleSetupComplete);
+    return () => window.removeEventListener('setupComplete', handleSetupComplete);
+  }, []);
+
   const dockItems: DockItem[] = [
     { id: "home", label: "Home", icon: <Home strokeWidth={1.5} className="w-5 h-5" />, href: '/dashboard' },
     { id: "evaluate", label: "Evaluate", icon: <Zap strokeWidth={1.5} className="w-5 h-5" />, href: '/dashboard/evaluate' },
@@ -109,6 +149,9 @@ export default function DashboardLayout({
   return (
     <TooltipProvider delayDuration={0}>
       <div className="relative flex min-h-screen flex-col bg-white">
+        {/* Setup Banner - Above everything */}
+        {!setupLoading && <SetupBanner slug={slug} setupComplete={setupComplete} />}
+
         {/* Blur Overlay */}
         {isSearchFocused && (
           <div className="fixed inset-0 z-40 bg-black/2 backdrop-blur-[1px]" onClick={() => setIsSearchFocused(false)} />
@@ -118,7 +161,8 @@ export default function DashboardLayout({
         )}
 
         {/* Fixed Top Header Row - reluit x partnership and Ask AI */}
-        <div className={cn("fixed top-0 left-0 right-0 z-50 px-6 py-4 transition-all duration-300", isIntegrationDrawerOpen && "blur-[1px]")}>
+        {/* When banner is NOT visible (setup complete), header goes to top-0. When banner IS visible (not setup), header goes to top-10 (40px down) */}
+        <div className={cn("fixed left-0 right-0 z-50 px-6 py-4 transition-all duration-300", isIntegrationDrawerOpen && "blur-[1px]", setupComplete || setupLoading ? "top-0" : "top-10")}>
           <div className="relative flex items-center">
             {/* reluit x partnership */}
             <div className={cn("flex items-baseline gap-2 transition-all duration-500 px-4 py-2 rounded-full backdrop-blur-md bg-white/50", isSearchFocused && "blur-[1px]")} style={{ paddingLeft: '44px', width: 'fit-content' }}>
@@ -319,7 +363,8 @@ export default function DashboardLayout({
         </div>
 
         {/* Main Content Area */}
-        <div className={cn("flex-1 pt-32 pl-24 transition-all duration-300", (isSearchFocused || isIntegrationDrawerOpen) && "blur-[1px]")}>
+        {/* Adjust top padding based on whether banner is visible */}
+        <div className={cn("flex-1 pl-24 transition-all duration-300", (isSearchFocused || isIntegrationDrawerOpen) && "blur-[1px]", setupComplete || setupLoading ? "pt-32" : "pt-40")}>
           <div className="page-transition-wrapper">
             {children}
           </div>
