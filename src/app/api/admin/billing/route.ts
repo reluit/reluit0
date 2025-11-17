@@ -232,6 +232,16 @@ export async function GET(request: NextRequest) {
       hostedInvoiceUrl: inv.hosted_invoice_url,
       }));
 
+    // Get customer details for better insights
+    const customerDetails = subscriptions?.map((sub) => ({
+      tenantId: sub.tenant_id,
+      tenantName: (sub.tenants as any)?.name || "Unknown",
+      slug: (sub.tenants as any)?.slug || "",
+      status: sub.status,
+      stripeCustomerId: sub.stripe_customer_id,
+      stripeSubscriptionId: sub.stripe_subscription_id,
+    })) || [];
+
     return NextResponse.json({
       totalMRR,
       totalARR,
@@ -240,6 +250,7 @@ export async function GET(request: NextRequest) {
       overdueInvoices,
       recentInvoices,
       subscriptionMetrics,
+      customerDetails,
     });
   } catch (error) {
     console.error("Error fetching billing data:", error);
