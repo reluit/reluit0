@@ -61,6 +61,13 @@ export default function AdminPage() {
     fetchTenants();
   }, []);
 
+  const [billingData, setBillingData] = useState<any>(null);
+
+  useEffect(() => {
+    fetchTenants();
+    fetchBillingData();
+  }, []);
+
   const fetchTenants = async () => {
     try {
       const response = await fetch("/api/admin/tenants");
@@ -73,8 +80,22 @@ export default function AdminPage() {
     }
   };
 
+  const fetchBillingData = async () => {
+    try {
+      const response = await fetch("/api/admin/billing?range=30d");
+      const data = await response.json();
+      setBillingData(data);
+    } catch (error) {
+      console.error("Error fetching billing data:", error);
+    }
+  };
+
   const totalTenants = tenants.length;
-  const activeTenants = tenants.length;
+  const activeTenants = billingData?.activeSubscriptions || tenants.length;
+  const monthlyRevenue = billingData?.totalMRR ? `$${(billingData.totalMRR / 100).toLocaleString()}` : "$0";
+  const avgRevenuePerTenant = totalTenants > 0 && billingData?.totalMRR 
+    ? `$${Math.round((billingData.totalMRR / 100) / totalTenants).toLocaleString()}` 
+    : "$0";
   const recentTenants = tenants.slice(0, 10);
 
   const stats = [
@@ -92,13 +113,13 @@ export default function AdminPage() {
     },
     {
       label: "Monthly Revenue",
-      value: "$23,400",
+      value: monthlyRevenue,
       icon: <DollarSign className="w-5 h-5" />,
       change: "+18%",
     },
     {
       label: "Avg. Revenue/Tenant",
-      value: "$498",
+      value: avgRevenuePerTenant,
       icon: <CreditCard className="w-5 h-5" />,
       change: "+5%",
     },

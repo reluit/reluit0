@@ -29,114 +29,9 @@ export async function GET(request: NextRequest) {
       startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
     }
 
-    // First, try to get invoices from our database (synced from Stripe webhooks)
-    const { data: dbInvoices, error: invoicesError } = await supabase
-      .from("invoices")
-      .select(`
-        id,
-        amount,
-        currency,
-        status,
-        created_at,
-        hosted_invoice_url,
-        stripe_invoice_id,
-        period_start,
-        period_end,
-        paid_at,
-        tenant:tenants(
-          id,
-          name,
-          slug
-        )
-      `)
-      .gte("created_at", startDate.toISOString())
-      .order("created_at", { ascending: false })
-      .limit(100);
-
-    // If we have invoices in DB, use them. Otherwise, fetch from Stripe
-    let allInvoices: any[] = [];
-
-    if (dbInvoices && dbInvoices.length > 0) {
-      // Use database invoices
-      allInvoices = dbInvoices.map((inv: any) => ({
-        id: inv.id,
-        stripe_invoice_id: inv.stripe_invoice_id,
-        tenant_id: inv.tenant?.id || null,
-        tenantName: inv.tenant?.name || "Unknown",
-        slug: inv.tenant?.slug || "",
-        amount: inv.amount || 0,
-        currency: inv.currency || "usd",
-        status: inv.status === "paid" ? "paid" : inv.status === "open" ? "open" : inv.status === "void" ? "void" : "uncollectible",
-        hosted_invoice_url: inv.hosted_invoice_url,
-        period_start: inv.period_start,
-        period_end: inv.period_end,
-        paid_at: inv.paid_at,
-        created_at: inv.created_at,
-        due_date: inv.period_end || inv.created_at,
-      }));
-    } else {
-      // Fallback: Fetch from Stripe directly
-      const { data: subscriptions } = await supabase
-        .from("subscriptions")
-        .select(`
-          id,
-          status,
-          tenant_id,
-          stripe_customer_id,
-          stripe_subscription_id,
-          tenants(
-            id,
-            name,
-            slug
-          )
-        `);
-
-      const customerIds = subscriptions
-        ?.filter((s) => s.stripe_customer_id)
-        .map((s) => s.stripe_customer_id) || [];
-
-      for (const customerId of customerIds) {
-        try {
-          const stripeInvoices = await stripe.invoices.list({
-            customer: customerId,
-            limit: 100,
-            created: {
-              gte: Math.floor(startDate.getTime() / 1000),
-            },
-          });
-
-          for (const invoice of stripeInvoices.data) {
-            const subscription = subscriptions?.find(
-              (s) => s.stripe_customer_id === customerId
-            );
-
-            if (subscription) {
-              allInvoices.push({
-                id: invoice.id,
-                stripe_invoice_id: invoice.id,
-                tenant_id: subscription.tenant_id,
-                tenantName: (subscription.tenants as any)?.name || "Unknown",
-                slug: (subscription.tenants as any)?.slug || "",
-                amount: invoice.amount_paid || invoice.amount_due || 0,
-                currency: invoice.currency || "usd",
-                status: invoice.status === "paid" ? "paid" : invoice.status === "open" ? "open" : invoice.status === "void" ? "void" : "uncollectible",
-                hosted_invoice_url: invoice.hosted_invoice_url,
-                period_start: invoice.period_start ? new Date(invoice.period_start * 1000).toISOString() : null,
-                period_end: invoice.period_end ? new Date(invoice.period_end * 1000).toISOString() : null,
-                paid_at: invoice.status_transitions?.paid_at ? new Date(invoice.status_transitions.paid_at * 1000).toISOString() : null,
-                created_at: new Date(invoice.created * 1000).toISOString(),
-                due_date: invoice.due_date ? new Date(invoice.due_date * 1000).toISOString() : invoice.period_end ? new Date(invoice.period_end * 1000).toISOString() : new Date(invoice.created * 1000).toISOString(),
-              });
-            }
-          }
-        } catch (error) {
-          console.error(`Error fetching invoices for customer ${customerId}:`, error);
-        }
-      }
-    }
-
-    // Fetch subscriptions for MRR calculation
-    const { data: subscriptions, error: subsError } = await supabase
+    // ALWAYS fetch from Stripe directly to ensure we have the latest data
+    // Database invoices are just a cache, but Stripe is the source of truth
+    const { data: subscriptions } = await supabase
       .from("subscriptions")
       .select(`
         id,
@@ -151,9 +46,55 @@ export async function GET(request: NextRequest) {
         )
       `);
 
-    if (subsError) {
-      console.error("Error fetching subscriptions:", subsError);
+    let allInvoices: any[] = [];
+    const customerIds = subscriptions
+      ?.filter((s) => s.stripe_customer_id)
+      .map((s) => s.stripe_customer_id) || [];
+
+    console.log(`[Admin Billing] Fetching invoices for ${customerIds.length} customers from Stripe`);
+
+    for (const customerId of customerIds) {
+      try {
+        const stripeInvoices = await stripe.invoices.list({
+          customer: customerId,
+          limit: 100,
+          created: {
+            gte: Math.floor(startDate.getTime() / 1000),
+          },
+        });
+
+        console.log(`[Admin Billing] Found ${stripeInvoices.data.length} invoices for customer ${customerId}`);
+
+        for (const invoice of stripeInvoices.data) {
+          const subscription = subscriptions?.find(
+            (s) => s.stripe_customer_id === customerId
+          );
+
+          if (subscription) {
+            allInvoices.push({
+              id: invoice.id,
+              stripe_invoice_id: invoice.id,
+              tenant_id: subscription.tenant_id,
+              tenantName: (subscription.tenants as any)?.name || "Unknown",
+              slug: (subscription.tenants as any)?.slug || "",
+              amount: invoice.amount_paid || invoice.amount_due || 0,
+              currency: invoice.currency || "usd",
+              status: invoice.status === "paid" ? "paid" : invoice.status === "open" ? "open" : invoice.status === "void" ? "void" : "uncollectible",
+              hosted_invoice_url: invoice.hosted_invoice_url,
+              period_start: invoice.period_start ? new Date(invoice.period_start * 1000).toISOString() : null,
+              period_end: invoice.period_end ? new Date(invoice.period_end * 1000).toISOString() : null,
+              paid_at: invoice.status_transitions?.paid_at ? new Date(invoice.status_transitions.paid_at * 1000).toISOString() : null,
+              created_at: new Date(invoice.created * 1000).toISOString(),
+              due_date: invoice.due_date ? new Date(invoice.due_date * 1000).toISOString() : invoice.period_end ? new Date(invoice.period_end * 1000).toISOString() : new Date(invoice.created * 1000).toISOString(),
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`[Admin Billing] Error fetching invoices for customer ${customerId}:`, error);
+      }
     }
+
+    console.log(`[Admin Billing] Total invoices fetched: ${allInvoices.length}`);
 
     // Calculate MRR from active subscriptions
     let totalMRR = 0;

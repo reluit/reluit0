@@ -7,6 +7,7 @@ import { ConversationDrawer } from "@/components/conversation-drawer";
 import { IntegrationDrawer } from "@/components/integrations/integration-drawer";
 import { DashboardPasswordPrompt } from "@/components/dashboard-password-prompt";
 import { SetupBanner } from "@/app/_components/setup-banner";
+import { OnboardingCarousel } from "@/components/onboarding-carousel";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
@@ -38,6 +39,7 @@ export default function DashboardLayout({
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [setupComplete, setSetupComplete] = useState(true);
   const [setupLoading, setSetupLoading] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   // AI suggestions
   const aiSuggestions = [
@@ -105,7 +107,19 @@ export default function DashboardLayout({
 
         if (response.ok) {
           const data = await response.json();
-          setSetupComplete(data.setupComplete || false);
+          const isComplete = data.setupComplete || false;
+          setSetupComplete(isComplete);
+          
+          // Show onboarding carousel if setup is complete and user hasn't seen it
+          if (isComplete) {
+            const hasSeenOnboarding = localStorage.getItem("onboarding_completed");
+            if (hasSeenOnboarding !== "true") {
+              // Small delay to ensure page is loaded
+              setTimeout(() => {
+                setShowOnboarding(true);
+              }, 1000);
+            }
+          }
         }
       } catch (error) {
         console.error('Failed to fetch setup status:', error);
@@ -149,6 +163,11 @@ export default function DashboardLayout({
   return (
     <TooltipProvider delayDuration={0}>
       <div className="relative flex min-h-screen flex-col bg-white">
+        {/* Onboarding Carousel */}
+        {showOnboarding && (
+          <OnboardingCarousel onComplete={() => setShowOnboarding(false)} />
+        )}
+        
         {/* Setup Banner - Above everything */}
         {!setupLoading && <SetupBanner slug={slug} setupComplete={setupComplete} />}
 
